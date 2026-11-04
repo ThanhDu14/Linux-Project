@@ -14,7 +14,7 @@
 | 2 | **Trân** | | Reverse proxy & bảo mật host | Bảo mật (20%) |
 | 3 | Thành viên 3 | | Ứng dụng & systemd, ghép báo cáo | Hệ thống (30%), Báo cáo (15%) |
 | 4 | Thành viên 4 | | CSDL & sao lưu | Sao lưu (20%) |
-| 5 | Thành viên 5 | | Bash toolkit & cảnh báo | Tự động hóa (15%) |
+| 5 | **Hưng** | | Bash toolkit & cảnh báo | Tự động hóa (15%) |
 
 ---
 
