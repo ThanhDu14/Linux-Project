@@ -1,0 +1,47 @@
+# terraform.tfvars.example — lab environment
+# Sao chép thành terraform.tfvars và điền giá trị thực (file này được commit, tfvars thì không).
+
+# AWS region
+aws_region = "ap-southeast-1"
+
+# Tên dự án
+project_name = "linux-project"
+
+# Label môi trường (không thay đổi)
+environment = "lab"
+
+# Tên S3 bucket chứa Terraform state (lấy từ output của bootstrap)
+# Ví dụ: "linux-project-terraform-state-123456789012"
+state_bucket = "linux-project-terraform-state-ACCOUNT_ID"
+
+# CIDR block của VPC
+vpc_cidr = "10.0.0.0/16"
+
+# CIDR của public subnet (Bastion, NLB, NAT)
+public_subnet_cidr = "10.0.1.0/24"
+
+# CIDR của private subnet (VM1, VM2)
+private_subnet_cidr = "10.0.2.0/24"
+
+# Availability Zone
+availability_zone = "ap-southeast-1a"
+
+# Tắt NAT khi không làm việc để tiết kiệm (~0.059 USD/giờ)
+# Bật trước khi chạy Ansible hoặc demo
+enable_nat = false
+
+# Tắt NLB khi không demo (~0.025 USD/giờ)
+enable_nlb = false
+
+# Tên EC2 Key Pair đã tạo trên AWS
+# aws ec2 create-key-pair --key-name linux-project-key --query 'KeyMaterial' --output text > ~/.ssh/linux-project-key.pem
+key_name = "linux-project-key"
+
+# Đường dẫn private key trên máy của bạn (ghi vào inventory cho Ansible)
+ssh_private_key_path = "~/.ssh/linux-project-key.pem"
+
+# Danh sách IP của nhóm được phép SSH vào Bastion (dùng /32 cho IP tĩnh, tối đa 10)
+admin_cidrs = [
+  "1.2.3.4/32",   # Thay bằng IP thật của từng thành viên
+  "5.6.7.8/32",
+]
