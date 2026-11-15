@@ -1,0 +1,2 @@
+-w /etc/passwd -p rwa -k role2_passwd
+-w /etc/shadow -p rwa -k role2_shadow
