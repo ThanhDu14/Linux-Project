@@ -1,0 +1,13 @@
+---
+# Giao diện VPN trên Bastion
+wireguard_interface: wg0
+# Phải khớp biến Terraform wireguard_port (SG + NACL)
+wireguard_port: 51820
+# IP của Bastion trong VPN; thành viên dùng 10.8.0.2 trở đi
+wireguard_address: 10.8.0.1/24
+
+# Private key của server — đặt trong group_vars/bastion/vault.yml (ansible-vault), KHÔNG để chữ thường
+# wireguard_server_private_key: ""
+
+# Danh sách thành viên (members có khoá wireguard: { ip, public_key }) — suy ra trong group_vars/bastion/wireguard.yml
+wireguard_peers: []

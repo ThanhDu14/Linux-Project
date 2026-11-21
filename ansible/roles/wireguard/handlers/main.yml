@@ -1,0 +1,6 @@
+---
+# reload = wg syncconf: thêm/bớt peer mà không ngắt kết nối của người đang dùng
+- name: Reload wireguard
+  ansible.builtin.systemd_service:
+    name: "wg-quick@{{ wireguard_interface }}"
+    state: reloaded

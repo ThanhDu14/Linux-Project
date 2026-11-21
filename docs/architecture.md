@@ -29,7 +29,7 @@ Hệ thống hiện thực đề "Đồ án thực hành Linux" (xem `docs/Do_An
 | D3 | Nginx + Flask + PostgreSQL **cùng trên VM1** | Đề bắt buộc `proxy_pass` tới cổng cục bộ và DB chỉ nghe localhost | Tách 3 tầng máy / RDS (lệch đề mục 3.2, 4.1) |
 | D4 | **NLB** (TCP passthrough) ở public subnet đưa Internet vào VM1 | Chỉ cần 1 subnet; Nginx tự xử lý TLS tự ký (đúng mục 6); giữ IP thật của client cho log/fail2ban | ALB (bắt buộc 2 AZ, phải đưa cert vào ACM, mất IP client) |
 | D5 | **NAT Gateway**, bật/tắt bằng biến Terraform `enable_nat` | Do AWS quản lý, tin cậy; tắt khi không dùng nên chi phí thấp | NAT instance trên Bastion |
-| D6 | **Bastion** là cửa SSH duy nhất (ProxyJump) | Đúng gợi ý mục 3.2 của đề; VM1/VM2 không có IP public | SSH trực tiếp / SSM Session Manager |
+| D6 | **Bastion** là cửa SSH duy nhất (ProxyJump); nhóm vào Bastion qua **VPN WireGuard** chạy ngay trên Bastion | Đúng gợi ý mục 3.2 của đề; VM1/VM2 không có IP public. WireGuard: nhà mạng đổi IP liên tục nên allowlist IP không dùng được; WireGuard im lặng với gói không có key → quét cổng không thấy | SSH trực tiếp / SSM Session Manager / allowlist IP từng người / máy VPN riêng (thêm 1 cửa ra internet, thêm chi phí, thực chất là Bastion thứ hai) |
 | D7 | Backup: VM1 **push** rsync sang VM2 bằng key bị giới hạn (`rrsync`), VM2 đẩy tiếp lên **S3** | Đúng đề (rsync sang VM thứ hai) + off-site 3-2-1; key giới hạn chống xoá backup nếu VM1 bị chiếm | Push không giới hạn key; chỉ dùng S3 |
 | D8 | Health-check chạy trên VM1 **và** từ VM2 kiểm tra chéo sang VM1 | VM1 treo hẳn thì vẫn có cảnh báo | Chỉ tự kiểm tra trên VM1 |
 | D9 | Terraform theo khuôn repo NT548: **bootstrap + modules (theo dịch vụ AWS) + environments (`shared`, `lab`)**, partial backend; Ansible chia **roles + site + inventory** | Tái sử dụng, dễ review; `shared` giữ backup S3 khi destroy `lab`; nhóm đã quen khuôn này | Một file Terraform/playbook phẳng; 1 môi trường duy nhất |
@@ -43,7 +43,7 @@ Hệ thống hiện thực đề "Đồ án thực hành Linux" (xem `docs/Do_An
 
 ```
                             Internet
-                 (người dùng)        (nhóm: SSH từ IP cho phép)
+                 (người dùng)        (nhóm: VPN WireGuard)
                       │                      │
                 ┌─────┴──────────────────────┴─────┐
                 │        Internet Gateway          │
@@ -55,7 +55,8 @@ VPC 10.0.0.0/16       │                      │
 │  ┌──────────────┐ ┌─┴────────────┐ ┌───────┴───────┐                 │
 │  │ NAT Gateway  │ │     NLB      │ │  bastion-01   │                 │
 │  │ (Elastic IP) │ │ TCP 80, 443  │ │  10.0.1.10    │                 │
-│  └──────▲───────┘ └─┬────────────┘ │ sshd,fail2ban │                 │
+│  └──────▲───────┘ └─┬────────────┘ │ wg0 10.8.0.1  │                 │
+│         │           │              │ sshd,fail2ban │                 │
 │         │ ra ngoài  │              └───────┬───────┘                 │
 │─────────┼───────────┼──────────────────────┼─────────────────────────│
 │ Private subnet 10.0.2.0/24 — ap-southeast-1a  (rt-private)           │
@@ -93,7 +94,7 @@ VPC 10.0.0.0/16       │                      │
 
 | Hostname | Subnet | IP private | Loại (đề xuất) | Ổ dữ liệu | Vai trò |
 |---|---|---|---|---|---|
-| `bastion-01` | public | `10.0.1.10` + IP public | t3.micro | — | Cửa SSH duy nhất |
+| `bastion-01` | public | `10.0.1.10` + IP public; VPN `10.8.0.1` | t3.micro | — | Cửa vào duy nhất cho quản trị: VPN WireGuard + SSH |
 | `web-app-db-01` (VM1) | private | `10.0.2.10` | t3.small | EBS gp3 10 GB → `/data` | Nginx, Flask, PostgreSQL |
 | `backup-01` (VM2) | private | `10.0.2.20` | t3.micro | EBS gp3 20 GB → `/backup` | Nhận backup, đẩy S3, health-check chéo |
 
@@ -103,7 +104,8 @@ Mọi máy: Ubuntu 22.04 LTS, user quản trị non-root có sudo, đăng nhập
 
 | Dịch vụ | Máy | Lắng nghe | Ai được truy cập |
 |---|---|---|---|
-| sshd | cả 3 | `0.0.0.0:22` | Bastion: IP nhóm; VM1/VM2: từ Bastion (VM2 thêm từ VM1) |
+| WireGuard | Bastion | `0.0.0.0:51820/udp` | Thành viên có key trong `wireguard_peers` |
+| sshd | cả 3 | `0.0.0.0:22` | Bastion: qua VPN (`10.8.0.0/24`) + `admin_cidrs` dự phòng; VM1/VM2: từ Bastion (VM2 thêm từ VM1) |
 | Nginx | VM1 | `0.0.0.0:80`, `0.0.0.0:443` | Từ NLB (và VM2 cho health-check) |
 | Flask (gunicorn) | VM1 | `127.0.0.1:5000` | Chỉ Nginx trên cùng máy |
 | PostgreSQL | VM1 | `127.0.0.1:5432` | Chỉ Flask và script backup trên cùng máy |
@@ -158,7 +160,8 @@ Hai subnet trong cùng VPC **tự thấy nhau** nhờ route `local` (AWS tạo s
 
 | Chiều | Port | Nguồn/Đích | Lý do |
 |---|---|---|---|
-| In | 22 | `<IP nhóm>/32` (biến `admin_cidrs`) | Chỉ nhóm SSH vào |
+| In | UDP 51820 | `0.0.0.0/0` | VPN WireGuard — chỉ trả lời gói có key hợp lệ |
+| In | 22 | `admin_cidrs` | SSH thẳng — đường của **Ansible** (inventory trỏ IP public; lần cài WireGuard đầu chưa có VPN) và **dự phòng** khi VPN hỏng. Nhóm không dùng (SSH qua VPN được giải mã trên máy, không đi qua SG) |
 | Out | 22 | `sg-vm1`, `sg-vm2` | ProxyJump |
 | Out | 80, 443 | `0.0.0.0/0` | apt |
 | Out | 587 | `0.0.0.0/0` | Mail cảnh báo |
@@ -196,15 +199,17 @@ Dải ephemeral dùng chung: **1024–65535** (Linux dùng 32768–60999; NLB/NA
 | 50 | In | ALL | `<dải IP xấu>` | DENY | Chặn ở biên (SG không làm được) — thêm khi cần |
 | 100 | In | TCP 80 | `0.0.0.0/0` | ALLOW | Web vào NLB; NAT nhận traffic từ private |
 | 110 | In | TCP 443 | `0.0.0.0/0` | ALLOW | như trên |
-| 120 | In | TCP 22 | `<IP nhóm>/32` | ALLOW | SSH vào Bastion |
+| 120–129 | In | TCP 22 | `admin_cidrs` | ALLOW | SSH thẳng vào Bastion (dự phòng) |
 | 130 | In | TCP 587 | `10.0.2.0/24` | ALLOW | NAT nhận mail từ VM1/VM2 |
 | 140 | In | TCP 1024–65535 | `0.0.0.0/0` | ALLOW | Traffic trả về |
+| 150 | In | UDP 51820 | `0.0.0.0/0` | ALLOW | VPN WireGuard vào Bastion |
 | * | In | ALL | `0.0.0.0/0` | DENY | |
 | 100 | Out | TCP 80 | `0.0.0.0/0` | ALLOW | NLB → VM1, NAT/Bastion → Internet |
 | 110 | Out | TCP 443 | `0.0.0.0/0` | ALLOW | như trên |
 | 120 | Out | TCP 587 | `0.0.0.0/0` | ALLOW | NAT chuyển mail ra ngoài |
 | 130 | Out | TCP 22 | `10.0.2.0/24` | ALLOW | Bastion → VM1/VM2 |
 | 140 | Out | TCP 1024–65535 | `0.0.0.0/0` | ALLOW | Trả lời người dùng, nhóm; NAT trả về private |
+| 150 | Out | UDP 1024–65535 | `0.0.0.0/0` | ALLOW | Gói trả lời WireGuard về cổng ephemeral của client (thiếu rule này VPN không bắt tay được) |
 | * | Out | ALL | `0.0.0.0/0` | DENY | |
 
 **`nacl-private`** (10.0.2.0/24)
@@ -228,12 +233,13 @@ Dải ephemeral dùng chung: **1024–65535** (Linux dùng 32768–60999; NLB/NA
 2. **NACL không lọc traffic trong cùng subnet** → rsync và health-check giữa VM1 ↔ VM2 chỉ do SG + UFW kiểm soát.
 3. **Không bị SG/NACL lọc**: Amazon DNS (`10.0.0.2`), metadata (`169.254.169.254`), Time Sync (`169.254.169.123`).
 4. **Hairpin NLB**: VM1 gọi chính DNS của NLB sẽ timeout. Script trên VM1 phải kiểm tra qua `https://127.0.0.1` kèm header `Host`.
+5. **SSH qua VPN không đi qua SG/NACL**: gói SSH nằm trong đường hầm UDP 51820, được giải mã ngay trên Bastion (giao diện `wg0`). Vì vậy "chỉ cho SSH từ VPN" phải chặn bằng **UFW** trên Bastion, không phải SG.
 
 ### 6.5 UFW (trên từng máy)
 
 | Máy | Mặc định | Cho phép vào |
 |---|---|---|
-| bastion-01 | deny incoming, allow outgoing | 22/tcp |
+| bastion-01 | deny incoming, allow outgoing | 51820/udp; 22/tcp chỉ từ `10.8.0.0/24` (VPN) và `admin_cidrs` (dự phòng) — *chờ TV2 cập nhật `config/ufw/`* |
 | web-app-db-01 | deny incoming, allow outgoing | 22/tcp từ `10.0.1.10`; 80, 443/tcp |
 | backup-01 | deny incoming, allow outgoing | 22/tcp từ `10.0.1.10` và `10.0.2.10` |
 
@@ -303,9 +309,9 @@ linux-project/
 │   ├── ansible.cfg
 │   ├── site.yml
 │   ├── inventory/
-│   │   ├── hosts.ini              # Terraform sinh ra (gitignored)
-│   │   └── group_vars/            # all, private, web, backup, vault
-│   └── roles/                     # common, storage, ssh_hardening, firewall, fail2ban, auditd,
+│   │   └── hosts.ini              # Terraform sinh ra (gitignored)
+│   ├── group_vars/                # all, bastion (wireguard + vault), private, web, backup — cạnh site.yml
+│   └── roles/                     # common, storage, wireguard, ssh_hardening, firewall, fail2ban, auditd,
 │                                  # nginx, postgresql, app, backup_target, toolkit
 ├── config/                        # File cấu hình THẬT — nguồn duy nhất, role chỉ copy
 │   ├── nginx/  ssh/  ufw/  fail2ban/  audit/     # Thành viên 2
@@ -346,7 +352,7 @@ for env in shared lab; do
   terraform -chdir=terraform/environments/$env apply
 done
 
-ansible-playbook -i ansible/inventory/hosts.ini ansible/site.yml --ask-vault-pass
+(cd ansible && ansible-playbook site.yml --vault-password-file ~/.ansible/linux-project.vault_pass)   # ansible.cfg trỏ inventory/hosts.ini
 ./scripts/toolkit.sh deploy
 ```
 
@@ -379,7 +385,8 @@ Thiết lập **AWS Budget** cảnh báo khi vượt ngưỡng (ví dụ 10 USD)
 |---|---|---|
 | 1 AZ, VM1 là điểm lỗi đơn | VM1/AZ sự cố → web ngừng | Thêm subnet AZ-b, VM1-b, PostgreSQL streaming replication qua SSH tunnel, NLB health check theo `pg_is_in_recovery()` |
 | VM2 cùng AZ với VM1 | AZ sự cố → mất cả bản gốc và bản sao trên VM2 | Đã giảm thiểu bằng S3 (đa AZ) |
-| Bastion là điểm lỗi đơn cho quản trị | Không SSH được, web không ảnh hưởng | Dự phòng bằng SSM Session Manager |
+| Bastion là điểm lỗi đơn cho quản trị (VPN + SSH cùng máy) | Không SSH được, web không ảnh hưởng | Đã có `admin_cidrs` SSH thẳng làm dự phòng; xa hơn: SSM Session Manager |
+| Mạng chặn UDP (wifi trường/công ty) | Thành viên không lên được VPN | Dùng 4G; hoặc mở thêm `admin_cidrs` tạm thời |
 | Chứng chỉ TLS tự ký | Trình duyệt cảnh báo | Có domain thật → Let's Encrypt (hệ thống đã ra Internet) |
 | Replication ≠ backup | — | Luôn giữ `pg_dump` + retention, kể cả khi thêm replication |
 
@@ -391,4 +398,6 @@ Thiết lập **AWS Budget** cảnh báo khi vượt ngưỡng (ví dụ 10 USD)
 |---|---|---|---|
 | 2026-11-03 | v1 | Bản chốt đầu tiên | Dự |
 | 2026-11-03 | v1.1 | Terraform đổi sang khuôn NT548: `terraform/{bootstrap,modules,environments/{shared,lab}}`, module theo dịch vụ AWS, partial backend, checkov | Dự |
+| 2026-11-05 | v1.3 | Thêm VPN WireGuard trên Bastion (UDP 51820: `sg-bastion`, `nacl-public` rule 150 in/out, role Ansible `wireguard`); `admin_cidrs` chỉ còn cho Ansible + dự phòng; `group_vars/` chuyển ra cạnh `site.yml`; vault mở bằng `--vault-password-file`. Đã chạy thật: SSH qua VPN OK (`SSH_CLIENT=10.8.0.2`) | Dự |
+| 2026-11-06 | v1.4 | Role Ansible `common`: hostname, múi giờ `Asia/Ho_Chi_Minh`, gói cơ bản; thành viên khai báo một nơi (`ansible/group_vars/all/members.yml`) → user + SSH key (độc quyền) + `/etc/sudoers.d/<user>` theo vai (Dự/Trân sudo đầy đủ có mật khẩu, TV3–5 sudo giới hạn theo lệnh, Bastion chỉ đăng nhập), peer WireGuard suy ra từ cùng danh sách; gỡ người qua `removed_members`. Đã chạy thật: `duy`/`hung` từ `NOPASSWD:ALL` → sudo giới hạn, lệnh ngoài danh sách bị từ chối + ghi `auth.log` | Dự |
 | 2026-11-04 | v1.2 | Review Terraform: gắn `sg-nlb` vào NLB, sửa đường dẫn và ProxyJump của inventory, checkov sạch (skip đặt trong resource), khoá SG mặc định, `ignore_changes = [ami]`, lifecycle S3 có `filter` + abort multipart, `required_version >= 1.10` | Dự |

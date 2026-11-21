@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+# {{ item.comment }} @ {{ inventory_hostname }} — sửa ở ansible/group_vars/all/members.yml, KHÔNG sửa tay
+{% if item.level == 'full' %}
+# Sudo đầy đủ, phải nhập mật khẩu
+{{ item.name }} ALL=(ALL:ALL) ALL
+{% else %}
+# Sudo giới hạn — chỉ các lệnh dưới đây, đúng cả tham số
+# !authenticate: user không có mật khẩu → lệnh ngoài danh sách bị từ chối NGAY ("not allowed", ghi log)
+# thay vì treo ở dấu nhắc mật khẩu. Không nới quyền: mọi dòng dưới vốn đã NOPASSWD.
+Defaults:{{ item.name }} !authenticate
+{% for p in item.profiles %}
+{% set prof = common_sudo_profiles[p] %}
+
+# profile: {{ p }}
+{{ item.name }} ALL=({{ prof.runas | default('root') }}) NOPASSWD: {{ prof.commands | join(', \\\n    ') }}
+{% endfor %}
+{% endif %}

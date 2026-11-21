@@ -1,0 +1,133 @@
+---
+# Nguồn dữ liệu: group_vars/all/members.yml (members, removed_members) + vault (hash mật khẩu sudo)
+
+# ---------- Kiểm tra dữ liệu trước khi đụng vào máy ----------
+- name: Xác định máy này thuộc group nào (bastion / web / backup)
+  ansible.builtin.set_fact:
+    common_host_group: "{{ (common_host_groups | intersect(group_names)) | first | default('') }}"
+
+- name: Kiểm tra máy thuộc đúng 1 group
+  ansible.builtin.assert:
+    that:
+      - (common_host_groups | intersect(group_names) | length) == 1
+    fail_msg: "{{ inventory_hostname }} phải thuộc đúng 1 trong {{ common_host_groups }} (đang: {{ group_names }})"
+    quiet: true
+
+- name: Kiểm tra danh sách thành viên
+  ansible.builtin.assert:
+    that:
+      - member_names | unique | length == member_names | length
+      - member_names | intersect(common_protected_users) | length == 0
+      - member_names | reject('match', '^[a-z][a-z0-9_-]{0,31}$') | list | length == 0
+      - removed_members | intersect(member_names) | length == 0
+      - removed_members | intersect(common_protected_users) | length == 0
+      - unknown_profiles | length == 0
+    fail_msg: >-
+      members.yml sai: tên trùng / tên được bảo vệ ({{ common_protected_users | join(', ') }}) /
+      tên không hợp lệ / vừa ở members vừa ở removed_members / profile sudo không tồn tại: {{ unknown_profiles }}
+    quiet: true
+  vars:
+    member_names: "{{ members | map(attribute='name') | list }}"
+    used_profiles: >-
+      {{ members | map(attribute='access') | map('dict2items') | flatten
+         | map(attribute='value') | select('iterable') | reject('string') | flatten | unique }}
+    unknown_profiles: "{{ used_profiles | difference(common_sudo_profiles.keys() | list) }}"
+
+# ---------- Quyền của từng thành viên trên máy này ----------
+# level: full (sudo đầy đủ, cần mật khẩu) | limited (sudo giới hạn, NOPASSWD) | login (chỉ đăng nhập)
+#        absent (không được vào máy này → gỡ) | skip (chưa có SSH key → chưa đụng tới)
+- name: Tính quyền từng thành viên trên {{ inventory_hostname }}
+  ansible.builtin.set_fact:
+    common_accounts: "{{ (common_accounts | default([])) + [entry] }}"
+  loop: "{{ members }}"
+  loop_control:
+    loop_var: m
+    label: "{{ m.name }}"
+  vars:
+    raw: "{{ m.access[common_host_group] | default('none') }}"
+    hash: "{{ common_password_hashes[m.name] | default('') }}"
+    level: >-
+      {{ 'skip' if m.ssh_key is not defined
+         else 'absent' if raw == 'none'
+         else ('full' if hash | length > 0 else 'login') if raw == 'full'
+         else 'login' if raw == 'login'
+         else 'limited' }}
+    entry:
+      name: "{{ m.name }}"
+      comment: "{{ m.comment | default(m.name) }}"
+      ssh_key: "{{ m.ssh_key | default('') }}"
+      level: "{{ level | trim }}"
+      wanted_full: "{{ raw == 'full' }}"
+      profiles: "{{ raw if (raw is iterable and raw is not string) else [] }}"
+      hash: "{{ hash }}"
+
+- name: Cảnh báo — có quyền full nhưng chưa có hash mật khẩu (tạm chỉ cho đăng nhập)
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.name }}: được cấp sudo đầy đủ nhưng chưa có hash trong vault
+      (vault_sudo_password_hashes.{{ item.name }}) → tạm thời KHÔNG có sudo.
+  loop: "{{ common_accounts | selectattr('wanted_full') | selectattr('level', 'eq', 'login') }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# ---------- Tạo / cập nhật ----------
+- name: Tạo user thành viên
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    comment: "{{ item.comment }}"
+    shell: /bin/bash
+    create_home: true
+    # append: false → gỡ khỏi group thừa (vd group `sudo` cấp tay trước đây)
+    groups: "{{ ['systemd-journal'] if item.level in ['full', 'limited'] else '' }}"
+    append: false
+    password: "{{ item.hash if item.level == 'full' else omit }}"
+    update_password: always
+  loop: "{{ common_accounts | selectattr('level', 'in', ['full', 'limited', 'login']) }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.level }})"
+  no_log: "{{ item.level == 'full' }}"
+
+- name: Ghi SSH key (độc quyền — key không khai báo bị gỡ)
+  ansible.posix.authorized_key:
+    user: "{{ item.name }}"
+    key: "{{ item.ssh_key }}"
+    exclusive: true
+  loop: "{{ common_accounts | selectattr('level', 'in', ['full', 'limited', 'login']) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Ghi /etc/sudoers.d/<user>
+  ansible.builtin.template:
+    src: sudoers.j2
+    dest: "/etc/sudoers.d/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+  loop: "{{ common_accounts | selectattr('level', 'in', ['full', 'limited']) }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.level }})"
+
+- name: Gỡ sudo của người chỉ được đăng nhập
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ item.name }}"
+    state: absent
+  loop: "{{ common_accounts | selectattr('level', 'eq', 'login') }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# ---------- Gỡ ----------
+# Chỉ gỡ tên tường minh: thành viên không được vào máy này, hoặc nằm trong removed_members.
+- name: Gỡ user (không được vào máy này / đã rời nhóm)
+  ansible.builtin.user:
+    name: "{{ item }}"
+    state: absent
+    remove: true
+    force: true
+  loop: "{{ (common_accounts | selectattr('level', 'eq', 'absent') | map(attribute='name') | list) + removed_members }}"
+
+- name: Gỡ sudoers của user đã gỡ
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ item }}"
+    state: absent
+  loop: "{{ (common_accounts | selectattr('level', 'eq', 'absent') | map(attribute='name') | list) + removed_members }}"

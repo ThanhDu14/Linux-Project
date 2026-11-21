@@ -40,8 +40,13 @@ key_name = "linux-project-key"
 # Đường dẫn private key trên máy của bạn (ghi vào inventory cho Ansible)
 ssh_private_key_path = "~/.ssh/linux-project-key.pem"
 
-# Danh sách IP của nhóm được phép SSH vào Bastion (dùng /32 cho IP tĩnh, tối đa 10)
+# IP được SSH THẲNG vào Bastion: đường của Ansible (inventory trỏ IP public) + dự phòng khi WireGuard hỏng.
+# Máy chạy Ansible phải nằm trong đây, nếu không playbook báo timeout.
+# Cả nhóm bình thường SSH qua VPN WireGuard (UDP 51820), không cần khai IP ở đây.
+# Bắt buộc 1–10 CIDR, cấm 0.0.0.0/0. Nhà mạng đổi IP liên tục thì dùng dải /16.
 admin_cidrs = [
-  "1.2.3.4/32",   # Thay bằng IP thật của từng thành viên
-  "5.6.7.8/32",
+  "1.2.0.0/16", # Thay bằng dải IP của người quản trị (Dự)
 ]
+
+# Cổng UDP của WireGuard trên Bastion (mặc định 51820, phải khớp role Ansible wireguard)
+# wireguard_port = 51820

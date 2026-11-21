@@ -1,0 +1,70 @@
+---
+# ================================================================
+# THÀNH VIÊN NHÓM — nguồn duy nhất cho user Linux, SSH key, sudo, VPN
+# ================================================================
+# Sửa xong chạy (trong ansible/):
+#   ansible-playbook site.yml --vault-password-file ~/.ansible/linux-project.vault_pass
+# Quy trình đầy đủ: docs/ssh-access.md mục 6.
+#
+# Mỗi thành viên:
+#   name      : user Linux (chữ thường, không dấu)
+#   comment   : tên + vai, hiện trong /etc/passwd
+#   ssh_key   : SSH public key (1 dòng). Chưa có → chưa tạo user ở đâu cả
+#   wireguard : { ip, public_key } — tuỳ chọn; có thì được vào VPN (10.8.0.1 là Bastion)
+#   access    : quyền theo máy (khoá = group inventory: bastion / web / backup)
+#                 full  → sudo đầy đủ, phải nhập mật khẩu (hash ở group_vars/all/vault.yml)
+#                 login → chỉ đăng nhập (vd đi qua Bastion bằng ProxyJump)
+#                 [..]  → sudo giới hạn: danh sách profile ở roles/common/defaults/main.yml
+#               Máy không ghi ở đây → không có user (đang có thì bị gỡ).
+# Public key KHÔNG phải bí mật nên để chữ thường ở đây.
+
+members:
+  - name: du
+    comment: "Dự — TV1 Hạ tầng"
+    # ssh_key: "ssh-ed25519 AAAA... du@linux-project"   # TODO: Dự tạo key cá nhân (hiện dùng ubuntu + .pem)
+    wireguard:
+      ip: 10.8.0.2
+      public_key: "/PdLQXIu0iRQ8zCCYXdwY2pKD9mlUutXrWyHhnu+CWs="
+    access:
+      bastion: full
+      web: full
+      backup: full
+
+  # - name: tran
+  #   comment: "Trân — TV2 Nginx & bảo mật"
+  #   ssh_key: "ssh-ed25519 AAAA... tran@linux-project"
+  #   wireguard: { ip: 10.8.0.3, public_key: "<...>" }
+  #   access:
+  #     bastion: full
+  #     web: full
+  #     backup: full
+
+  # - name: dang
+  #   comment: "Đăng — TV3 Ứng dụng & systemd"
+  #   ssh_key: "ssh-ed25519 AAAA... dang@linux-project"
+  #   wireguard: { ip: 10.8.0.6, public_key: "<...>" }
+  #   access:
+  #     bastion: login
+  #     web: [app]
+
+  - name: duy
+    comment: "Duy — TV4 CSDL & sao lưu"
+    ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHOEraIZWFRMKPINMexKYENHlR3bHsxAV9sDWUomjAvI Duy@linux-project"
+    # wireguard: { ip: 10.8.0.5, public_key: "<...>" }
+    access:
+      bastion: login
+      web: [postgres_service, postgres_psql, backup_source]
+      backup: [backup_target]
+
+  - name: hung
+    comment: "Hưng — TV5 Bash toolkit & cảnh báo"
+    ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILFlGAZU94juji1xoJ2KSgnQ6u0eZAoqgJi7sHCXGmDQ Hung@linux-project"
+    # wireguard: { ip: 10.8.0.4, public_key: "<...>" }
+    access:
+      bastion: login
+      web: [nginx_deploy, healthcheck]
+      backup: [healthcheck]
+
+# Người rời nhóm: XOÁ khỏi `members` rồi ghi tên vào đây → gỡ user + home + sudoers trên mọi máy
+# (peer VPN tự mất vì không còn trong members). Chỉ những tên ghi ở đây mới bị gỡ.
+removed_members: []

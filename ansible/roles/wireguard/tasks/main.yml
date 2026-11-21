@@ -1,0 +1,47 @@
+---
+- name: Kiểm tra đã có private key của server (từ vault)
+  ansible.builtin.assert:
+    that:
+      - wireguard_server_private_key is defined
+      - wireguard_server_private_key | length > 0
+    fail_msg: "Thiếu wireguard_server_private_key — tạo group_vars/bastion/vault.yml bằng ansible-vault (xem docs/ssh-access.md)"
+    quiet: true
+
+- name: Kiểm tra IP VPN của các thành viên không trùng nhau
+  ansible.builtin.assert:
+    that:
+      - (wireguard_peers | map(attribute='wireguard.ip') | list | unique | length) == (wireguard_peers | length)
+    fail_msg: "Có 2 thành viên trùng IP VPN trong wireguard_peers"
+    quiet: true
+
+- name: Cài wireguard-tools
+  ansible.builtin.apt:
+    name: wireguard-tools
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Ghi cấu hình /etc/wireguard/{{ wireguard_interface }}.conf
+  ansible.builtin.template:
+    src: wg.conf.j2
+    dest: "/etc/wireguard/{{ wireguard_interface }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  diff: false # file chứa private key — không in ra khi chạy --diff
+  notify: Reload wireguard
+
+- name: Bật và chạy wg-quick@{{ wireguard_interface }}
+  ansible.builtin.systemd_service:
+    name: "wg-quick@{{ wireguard_interface }}"
+    enabled: true
+    state: started
+
+- name: Lấy public key của server (để gửi cho thành viên)
+  ansible.builtin.command: "wg show {{ wireguard_interface }} public-key"
+  register: wireguard_server_public_key
+  changed_when: false
+
+- name: In public key của server
+  ansible.builtin.debug:
+    msg: "Server public key: {{ wireguard_server_public_key.stdout }}"

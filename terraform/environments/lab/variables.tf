@@ -66,7 +66,7 @@ variable "key_name" {
 
 variable "admin_cidrs" {
   type        = list(string)
-  description = "List of CIDRs allowed to SSH into the Bastion host (e.g. your home IP /32)"
+  description = "CIDRs allowed to SSH directly into the Bastion — used by Ansible (inventory points at the public IP) and as a fallback; the team SSHes over the WireGuard VPN"
 
   validation {
     condition     = length(var.admin_cidrs) >= 1 && length(var.admin_cidrs) <= 10
@@ -83,4 +83,10 @@ variable "ssh_private_key_path" {
   type        = string
   description = "Local path to the private key of key_name; written into the Ansible inventory"
   default     = "~/.ssh/linux-project-key.pem"
+}
+
+variable "wireguard_port" {
+  type        = number
+  description = "UDP port of the WireGuard VPN on the Bastion (must match the Ansible role wireguard)"
+  default     = 51820
 }

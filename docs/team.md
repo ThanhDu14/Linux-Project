@@ -12,8 +12,8 @@
 |---|---|---|---|---|
 | 1 | **Dự** | | Hạ tầng AWS — Terraform + Ansible | Hệ thống (30%) |
 | 2 | **Trân** | | Reverse proxy & bảo mật host | Bảo mật (20%) |
-| 3 | Thành viên 3 | | Ứng dụng & systemd, ghép báo cáo | Hệ thống (30%), Báo cáo (15%) |
-| 4 | Thành viên 4 | | CSDL & sao lưu | Sao lưu (20%) |
+| 3 | **Đăng** | | Ứng dụng & systemd, ghép báo cáo | Hệ thống (30%), Báo cáo (15%) |
+| 4 | **Duy** | | CSDL & sao lưu | Sao lưu (20%) |
 | 5 | **Hưng** | | Bash toolkit & cảnh báo | Tự động hóa (15%) |
 
 ---
@@ -74,7 +74,7 @@
 
 ---
 
-### 2.3 Thành viên 3 — Ứng dụng & systemd (+ ghép báo cáo)
+### 2.3 Đăng (TV3) — Ứng dụng & systemd (+ ghép báo cáo)
 
 **Phụ trách**
 - Ứng dụng Flask (chạy bằng gunicorn): ≥ 1 endpoint đọc, ≥ 1 endpoint ghi, `/health` có kiểm tra kết nối DB.
@@ -91,7 +91,7 @@
 
 ---
 
-### 2.4 Thành viên 4 — CSDL & sao lưu
+### 2.4 Duy (TV4) — CSDL & sao lưu
 
 **Phụ trách**
 - PostgreSQL: DB riêng, role ứng dụng quyền tối thiểu, `listen_addresses = 'localhost'`, `pg_hba.conf` chặt; data dir trên `/data`.

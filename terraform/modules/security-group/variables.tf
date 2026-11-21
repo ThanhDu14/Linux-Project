@@ -17,3 +17,9 @@ variable "admin_cidrs" {
   type        = list(string)
   description = "List of admin CIDRs allowed to SSH into Bastion"
 }
+
+variable "wireguard_port" {
+  type        = number
+  description = "UDP port of the WireGuard VPN on the Bastion"
+  default     = 51820
+}

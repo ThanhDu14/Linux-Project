@@ -38,16 +38,18 @@ module "nacl" {
   public_subnet_cidr  = var.public_subnet_cidr
   private_subnet_cidr = var.private_subnet_cidr
   admin_cidrs         = var.admin_cidrs
+  wireguard_port      = var.wireguard_port
 }
 
 # 3. Security Group Module
 module "security_group" {
   source = "../../modules/security-group"
 
-  project_name = var.project_name
-  environment  = var.environment
-  vpc_id       = module.vpc.vpc_id
-  admin_cidrs  = var.admin_cidrs
+  project_name   = var.project_name
+  environment    = var.environment
+  vpc_id         = module.vpc.vpc_id
+  admin_cidrs    = var.admin_cidrs
+  wireguard_port = var.wireguard_port
 }
 
 # 4. EC2 Module — Bastion (public subnet, Elastic IP, no data volume)

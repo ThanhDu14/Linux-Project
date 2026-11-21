@@ -79,6 +79,16 @@ resource "aws_vpc_security_group_ingress_rule" "bastion_in_ssh" {
   cidr_ipv4         = each.value
 }
 
+resource "aws_vpc_security_group_ingress_rule" "bastion_in_wireguard" {
+  # WireGuard không trả lời gói tin không có key hợp lệ → quét cổng không thấy; SSH thật đi bên trong đường hầm
+  security_group_id = aws_security_group.bastion.id
+  description       = "Allow WireGuard VPN from Internet (key-authenticated)"
+  ip_protocol       = "udp"
+  from_port         = var.wireguard_port
+  to_port           = var.wireguard_port
+  cidr_ipv4         = "0.0.0.0/0"
+}
+
 resource "aws_vpc_security_group_egress_rule" "bastion_out_ssh_vm1" {
   security_group_id            = aws_security_group.bastion.id
   description                  = "ProxyJump SSH to VM1"

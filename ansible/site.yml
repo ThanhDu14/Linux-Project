@@ -1,0 +1,17 @@
+---
+# site.yml — điều phối toàn bộ cấu hình. Chạy (trong ansible/):
+#   ansible-playbook site.yml --vault-password-file ~/.ansible/linux-project.vault_pass
+# (không có file mật khẩu thì dùng --ask-vault-pass)
+# Các role khác (storage, ssh_hardening, ...) sẽ được thêm vào đây.
+
+- name: Tất cả máy — cơ bản + user/SSH key/sudo của thành viên
+  hosts: all
+  become: true
+  roles:
+    - common
+
+- name: Bastion — VPN WireGuard (cửa vào cho nhóm quản trị)
+  hosts: bastion
+  become: true
+  roles:
+    - wireguard

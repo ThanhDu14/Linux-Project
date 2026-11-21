@@ -1,0 +1,7 @@
+---
+# Peer VPN được SUY RA từ group_vars/all/members.yml (thành viên có khoá `wireguard`).
+# Thêm/bớt người: sửa members.yml — KHÔNG khai báo peer ở đây. Chi tiết: docs/ssh-access.md mục 6.
+
+wireguard_server_private_key: "{{ vault_wireguard_server_private_key }}"
+
+wireguard_peers: "{{ members | selectattr('wireguard', 'defined') | list }}"

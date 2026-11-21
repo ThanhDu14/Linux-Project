@@ -84,7 +84,8 @@ Hai subnet tự thấy nhau nhờ route `local` AWS tạo sẵn.
 
 - Lọc ở **ranh giới subnet**; **stateless** (phải mở cả chiều về — dải cổng tạm 1024–65535); có ALLOW và DENY, xét theo số thứ tự.
 - **Không lọc** traffic giữa 2 máy cùng subnet (vd rsync VM1 → VM2).
-- Rule SSH đánh số 120–129 → `admin_cidrs` tối đa 10 CIDR.
+- Rule SSH đánh số 120–129 → `admin_cidrs` tối đa 10 CIDR — đường của Ansible + dự phòng; cả nhóm đi qua VPN.
+- Rule 150: UDP 51820 vào Bastion cho VPN WireGuard, kèm rule ra UDP 1024–65535 cho gói trả lời.
 - Bảng rule: [`architecture.md` § 6.3](architecture.md#63-network-acl).
 
 ### Tầng 6 — NLB (`modules/nlb`)
@@ -100,7 +101,8 @@ Network Load Balancer ở public subnet — cửa vào **duy nhất** cho ngư�
 
 ```
 Internet ──80/443──► sg-nlb ──80/443──► sg-vm1 ◄──443── sg-vm2
-Nhóm ────22───────► sg-bastion ──22──► sg-vm1 ──22──► sg-vm2 (rsync)
+Nhóm ──UDP 51820──► sg-bastion ──22──► sg-vm1 ──22──► sg-vm2 (rsync)
+   (SSH đi trong VPN)
                               └──22──► sg-vm2
 ```
 
@@ -163,7 +165,7 @@ VM1/VM2 ở private subnet, **không có IP public** → bị cô lập cả 2 c
 | | Ai mở kết nối trước? | Chiều | Dùng cho |
 |---|---|---|---|
 | **NLB** | Người bên ngoài | Ngoài → trong | Người dùng truy cập web (chỉ 80/443 tới VM1) |
-| **Bastion** | Nhóm quản trị | Ngoài → trong | SSH (chỉ từ `admin_cidrs`), ProxyJump vào VM1/VM2 |
+| **Bastion** | Nhóm quản trị | Ngoài → trong | VPN WireGuard (UDP 51820) → SSH, ProxyJump vào VM1/VM2; SSH thẳng từ `admin_cidrs` cho Ansible và dự phòng |
 | **NAT Gateway** | Máy bên trong | Trong → ngoài | `apt`, `pip`, mail cảnh báo — **cấm** chiều vào |
 
 ### NAT đặt ở public subnet, nhưng phục vụ private subnet

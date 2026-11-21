@@ -1,0 +1,64 @@
+---
+# ===== Phần cơ bản =====
+common_timezone: Asia/Ho_Chi_Minh
+common_packages:
+  - vim
+  - curl
+  - htop
+  - git
+
+# Mỗi máy thuộc đúng 1 trong các group này của inventory — dùng làm khoá trong members[].access
+common_host_groups: [bastion, web, backup]
+
+# Không bao giờ được quản lý / xoá các user này qua members hoặc removed_members
+common_protected_users: [root, ubuntu, postgres, www-data, nobody, syslog, systemd-network]
+
+# Hash mật khẩu sudo (openssl passwd -6) của người có quyền "full" — đặt trong group_vars/all/vault.yml
+common_password_hashes: "{{ vault_sudo_password_hashes | default({}) }}"
+
+# ===== Sudo giới hạn theo vai =====
+# Mỗi profile = một dòng sudoers: chạy với quyền `runas`, chỉ đúng các lệnh liệt kê (đường dẫn tuyệt đối).
+# Không thêm: editor (vim/nano), pager (less/more), `systemctl edit`, tar/rsync/find — đều thoát ra được shell root.
+# Script trong /usr/local/sbin phải do root sở hữu và người dùng không ghi được (role toolkit/backup lo).
+# Không cần sudo cho `systemctl status`, `systemctl list-timers`, `journalctl`: thành viên có sudo đã ở group systemd-journal.
+common_sudo_profiles:
+  # Đăng (TV3) @ VM1 — app Flask + systemd
+  app:
+    commands:
+      - /usr/bin/systemctl start app.service
+      - /usr/bin/systemctl stop app.service
+      - /usr/bin/systemctl restart app.service
+      - /usr/bin/systemctl daemon-reload
+  # Duy (TV4) @ VM1 — PostgreSQL
+  postgres_service:
+    commands:
+      - /usr/bin/systemctl start postgresql.service
+      - /usr/bin/systemctl stop postgresql.service
+      - /usr/bin/systemctl restart postgresql.service
+  # `sudo -u postgres psql` — chạy bằng user postgres, KHÔNG phải root (\! trong psql chỉ ra shell postgres)
+  postgres_psql:
+    runas: postgres
+    commands:
+      - /usr/bin/psql
+  # Duy (TV4) @ VM1 — sao lưu / khôi phục
+  backup_source:
+    commands:
+      - /usr/local/sbin/backup.sh
+      - /usr/local/sbin/restore.sh
+      - /usr/bin/systemctl start backup.service
+  # Duy (TV4) @ VM2 — đẩy backup lên S3
+  backup_target:
+    commands:
+      - /usr/bin/systemctl start s3-sync.service
+  # Hưng (TV5) @ VM1 — deploy cấu hình Nginx + xoay log
+  nginx_deploy:
+    commands:
+      - /usr/sbin/nginx -t
+      - /usr/bin/systemctl reload nginx.service
+      - /usr/local/sbin/deploy.sh
+      - /usr/local/sbin/logrotate.sh
+  # Hưng (TV5) @ VM1 + VM2 — health-check
+  healthcheck:
+    commands:
+      - /usr/local/sbin/healthcheck.sh
+      - /usr/bin/systemctl start healthcheck.service
