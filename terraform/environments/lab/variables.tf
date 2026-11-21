@@ -101,3 +101,14 @@ variable "domain_name" {
     error_message = "domain_name phải là tên miền chữ thường không có dấu chấm cuối (vd example.click), hoặc để trống."
   }
 }
+
+variable "dns_subdomain" {
+  type        = string
+  description = "Subdomain of domain_name reserved for this project, so the same domain can serve other projects (e.g. \"linux\" → app.linux.<domain>, status.linux.<domain>). Empty = records directly under domain_name"
+  default     = "linux"
+
+  validation {
+    condition     = var.dns_subdomain == "" || can(regex("^[a-z0-9-]+$", var.dns_subdomain))
+    error_message = "dns_subdomain chỉ gồm chữ thường, số, dấu gạch ngang (vd linux)."
+  }
+}

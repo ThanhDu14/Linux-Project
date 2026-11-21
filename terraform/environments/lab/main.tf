@@ -120,9 +120,11 @@ module "nlb" {
 # Route 53 — app.<domain>, status.<domain> → NLB (chỉ khi có domain_name và enable_nlb)
 # ============================================================
 locals {
-  enable_dns    = var.domain_name != "" && var.enable_nlb
-  app_domain    = var.domain_name != "" ? "app.${var.domain_name}" : "app.lab.local"
-  status_domain = var.domain_name != "" ? "status.${var.domain_name}" : "status.lab.local"
+  enable_dns = var.domain_name != "" && var.enable_nlb
+  # Mỗi bài/dự án một nhánh con của cùng domain: app.<dns_subdomain>.<domain_name>
+  web_base      = var.domain_name == "" ? "lab.local" : (var.dns_subdomain == "" ? var.domain_name : "${var.dns_subdomain}.${var.domain_name}")
+  app_domain    = "app.${local.web_base}"
+  status_domain = "status.${local.web_base}"
 }
 
 # Zone do Route 53 tự tạo khi mua domain — không quản lý vòng đời ở đây

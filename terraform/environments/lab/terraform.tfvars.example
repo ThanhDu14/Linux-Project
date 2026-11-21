@@ -34,9 +34,11 @@ enable_nat = false
 enable_nlb = false
 
 # Domain đã mua trên Route 53 (Route 53 tự tạo hosted zone). Có domain + enable_nlb = true
-# → tạo app.<domain>, status.<domain> trỏ vào NLB, Ansible tự dùng tên này cho vhost nginx.
+# → tạo app.<dns_subdomain>.<domain>, status.<dns_subdomain>.<domain> trỏ vào NLB, Ansible tự dùng tên này cho vhost nginx.
 # Để trống → vhost là *.lab.local, curl bằng NLB DNS + header Host.
 # domain_name = "example.click"
+# Nhánh riêng của bài này trong domain (domain dùng chung cho nhiều bài) → app.linux.example.click
+# dns_subdomain = "linux"
 
 # Tên EC2 Key Pair đã tạo trên AWS
 # aws ec2 create-key-pair --key-name linux-project-key --query 'KeyMaterial' --output text > ~/.ssh/linux-project-key.pem
