@@ -23,46 +23,24 @@
     cache_valid_time: 3600
   when: "'nginx' not in ansible_facts.packages"
 
-# ---------- TLS tự ký ----------
-# Sinh lần đầu, và sinh lại khi tên miền đổi (vd chuyển *.lab.local → domain Route 53)
-- name: Kiểm tra chứng chỉ TLS hiện có
-  ansible.builtin.stat:
-    path: "{{ nginx_tls_cert }}"
-  register: nginx_tls_cert_stat
+# ---------- Chứng chỉ TLS ----------
+- name: Chọn cách cấp chứng chỉ TLS
+  ansible.builtin.set_fact:
+    nginx_tls_effective_mode: >-
+      {{ nginx_tls_mode if nginx_tls_mode != 'auto'
+         else ('selfsigned' if nginx_tls_names | select('search', '\\.lab\\.local$') | list | length > 0
+               else 'letsencrypt') }}
 
-- name: Đọc SAN của chứng chỉ hiện có
-  community.crypto.x509_certificate_info:
-    path: "{{ nginx_tls_cert }}"
-  register: nginx_tls_cert_info
-  when: nginx_tls_cert_stat.stat.exists
+- name: Kiểm tra chế độ TLS hợp lệ
+  ansible.builtin.assert:
+    that:
+      - nginx_tls_effective_mode in ['selfsigned', 'letsencrypt']
+      - nginx_tls_effective_mode == 'selfsigned' or (nginx_tls_names | select('search', '\\.lab\\.local$') | list | length == 0)
+    fail_msg: "nginx_tls_mode={{ nginx_tls_mode }} không hợp lệ, hoặc Let's Encrypt không cấp cho tên *.lab.local"
+    quiet: true
 
-- name: Sinh chứng chỉ TLS tự ký (lần đầu hoặc khi tên miền đổi)
-  ansible.builtin.command:
-    argv:
-      - openssl
-      - req
-      - -x509
-      - -newkey
-      - rsa:2048
-      - -nodes
-      - -sha256
-      - -days
-      - "{{ nginx_tls_days }}"
-      - -subj
-      - "/CN={{ nginx_tls_names | first }}"
-      - -addext
-      - "subjectAltName={{ nginx_tls_san | join(',') }}"
-      - -keyout
-      - "{{ nginx_tls_key }}"
-      - -out
-      - "{{ nginx_tls_cert }}"
-  vars:
-    nginx_tls_san: "{{ nginx_tls_names | map('regex_replace', '^', 'DNS:') | list }}"
-  when: >-
-    not nginx_tls_cert_stat.stat.exists
-    or (nginx_tls_cert_info.subject_alt_name | default([]) | sort) != (nginx_tls_san | sort)
-  changed_when: true
-  notify: Reload nginx
+- name: "TLS: {{ nginx_tls_effective_mode }}"
+  ansible.builtin.include_tasks: "tls_{{ nginx_tls_effective_mode }}.yml"
 
 - name: Quyền private key TLS (chỉ root đọc)
   ansible.builtin.file:
@@ -70,7 +48,7 @@
     owner: root
     group: root
     mode: "0600"
-  when: not ansible_check_mode # --check: key chưa được sinh thật
+  when: not ansible_check_mode # --check: key chưa được tạo thật
 
 # ---------- Trang tĩnh status.lab.local ----------
 - name: Thư mục {{ nginx_status_root }}

@@ -59,7 +59,7 @@
 
 **Phụ trách**
 - Nginx: 2 vhost (`app.lab.local`, `status.lab.local`), `proxy_pass` + header (`Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`).
-- TLS tự ký bằng `openssl`, chuyển hướng 80 → 443 (301).
+- TLS: chứng chỉ Let's Encrypt cho `*.linux.thanhdu.click` (Ansible xin qua DNS Route 53), tự ký bằng `openssl` khi chưa có domain (`*.lab.local`); chuyển hướng 80 → 443 (301).
 - UFW trên cả 3 máy (bảng ở `architecture.md` mục 6.5), giải thích lý do mở từng cổng.
 - Gia cố SSH: tắt root, chỉ dùng khoá, `AllowUsers`.
 - fail2ban: jail `sshd` (bắt buộc), jail cho Nginx (khuyến khích).

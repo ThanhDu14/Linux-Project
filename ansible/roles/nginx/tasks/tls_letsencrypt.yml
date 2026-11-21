@@ -1,0 +1,57 @@
+---
+# TLS Let's Encrypt — xác minh qua DNS (TXT trên Route 53), certbot chạy trên MÁY CHẠY ANSIBLE:
+#   - VM1 không cần quyền IAM sửa Route 53, không phải mở thêm cổng
+#   - chứng chỉ giữ ở máy quản trị → huỷ/dựng lại lab vẫn dùng tiếp, không đụng giới hạn 5 chứng chỉ trùng/tuần
+# Yêu cầu trên máy chạy Ansible: certbot + certbot-dns-route53 (pipx install certbot && pipx inject certbot certbot-dns-route53)
+# và AWS credentials có quyền Route 53 trên zone của domain (dùng profile AWS mặc định).
+# Gia hạn: chạy lại playbook — certbot chỉ xin mới khi còn < 30 ngày (--keep-until-expiring).
+
+- name: Xin / gia hạn chứng chỉ Let's Encrypt (certbot trên máy chạy Ansible)
+  ansible.builtin.command:
+    argv: >-
+      {{ [nginx_certbot, 'certonly', '--non-interactive', '--agree-tos',
+          '--dns-route53', '--keep-until-expiring',
+          '--cert-name', nginx_letsencrypt_cert_name,
+          '--config-dir', nginx_letsencrypt_dir ~ '/config',
+          '--work-dir', nginx_letsencrypt_dir ~ '/work',
+          '--logs-dir', nginx_letsencrypt_dir ~ '/logs']
+         + (['--staging'] if nginx_letsencrypt_staging else [])
+         + (['-m', nginx_letsencrypt_email] if nginx_letsencrypt_email | length > 0
+            else ['--register-unsafely-without-email'])
+         + (nginx_tls_names | map('regex_replace', '^', '-d ') | map('split', ' ') | flatten) }}
+  environment:
+    PATH: "{{ lookup('env', 'HOME') }}/.local/bin:{{ lookup('env', 'PATH') }}"
+  register: nginx_certbot_result
+  changed_when: "'Successfully received certificate' in nginx_certbot_result.stdout"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Kiểm tra chứng chỉ đã có trên máy chạy Ansible
+  ansible.builtin.stat:
+    path: "{{ nginx_letsencrypt_live }}/fullchain.pem"
+  register: nginx_letsencrypt_local
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Copy chứng chỉ (fullchain) lên máy
+  ansible.builtin.copy:
+    src: "{{ nginx_letsencrypt_live }}/fullchain.pem"
+    dest: "{{ nginx_tls_cert }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: nginx_letsencrypt_local.stat.exists # --check lần đầu: certbot chưa chạy thật
+  notify: Reload nginx
+
+- name: Copy private key lên máy (chỉ root đọc)
+  ansible.builtin.copy:
+    src: "{{ nginx_letsencrypt_live }}/privkey.pem"
+    dest: "{{ nginx_tls_key }}"
+    owner: root
+    group: root
+    mode: "0600"
+  diff: false
+  when: nginx_letsencrypt_local.stat.exists
+  notify: Reload nginx

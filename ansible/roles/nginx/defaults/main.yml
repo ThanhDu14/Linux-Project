@@ -27,3 +27,18 @@ nginx_tls_cert: /etc/ssl/certs/role2-lab.crt
 nginx_tls_key: /etc/ssl/private/role2-lab.key
 nginx_tls_days: 825
 nginx_tls_names: "{{ nginx_sites | map(attribute='name') | list }}"
+
+# Cách cấp chứng chỉ: auto | selfsigned | letsencrypt
+#   auto → *.lab.local dùng tự ký; domain thật (Route 53) dùng Let's Encrypt
+nginx_tls_mode: auto
+
+# ----- Let's Encrypt (tasks/tls_letsencrypt.yml) -----
+nginx_certbot: certbot
+# Thư mục certbot trên MÁY CHẠY ANSIBLE — chứa private key, ngoài repo
+nginx_letsencrypt_dir: "{{ lookup('env', 'HOME') }}/.ansible/letsencrypt"
+# true → máy chủ thử (chứng chỉ không được tin, không tính hạn mức) — dùng để thử trước
+nginx_letsencrypt_staging: false
+nginx_letsencrypt_cert_name: "linux-project{{ '-staging' if nginx_letsencrypt_staging else '' }}"
+nginx_letsencrypt_live: "{{ nginx_letsencrypt_dir }}/config/live/{{ nginx_letsencrypt_cert_name }}"
+# Trống → đăng ký không kèm email
+nginx_letsencrypt_email: ""
