@@ -1,0 +1,104 @@
+---
+- name: Kiểm tra đủ file vhost trong config/nginx/
+  ansible.builtin.assert:
+    that:
+      - (nginx_config_src ~ '/' ~ item ~ '.conf') is file
+    fail_msg: "Thiếu {{ nginx_config_src }}/{{ item }}.conf (Thành viên 2 sở hữu)"
+    quiet: true
+  loop: "{{ nginx_sites }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+# Chỉ gọi apt khi chưa có nginx: VM1 ở private subnet, cần NAT (enable_nat = true) mới cài được
+- name: Liệt kê gói đã cài
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Cài nginx (cần NAT)
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: "'nginx' not in ansible_facts.packages"
+
+# ---------- TLS tự ký ----------
+- name: Sinh chứng chỉ TLS tự ký (chỉ lần đầu)
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -x509
+      - -newkey
+      - rsa:2048
+      - -nodes
+      - -sha256
+      - -days
+      - "{{ nginx_tls_days }}"
+      - -subj
+      - "/CN={{ nginx_tls_names | first }}"
+      - -addext
+      - "subjectAltName={{ nginx_tls_names | map('regex_replace', '^', 'DNS:') | join(',') }}"
+      - -keyout
+      - "{{ nginx_tls_key }}"
+      - -out
+      - "{{ nginx_tls_cert }}"
+    creates: "{{ nginx_tls_cert }}"
+  notify: Reload nginx
+
+- name: Quyền private key TLS (chỉ root đọc)
+  ansible.builtin.file:
+    path: "{{ nginx_tls_key }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+# ---------- Trang tĩnh status.lab.local ----------
+- name: Thư mục {{ nginx_status_root }}
+  ansible.builtin.file:
+    path: "{{ nginx_status_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Trang status (config/nginx/{{ nginx_status_page }})
+  ansible.builtin.copy:
+    src: "{{ nginx_config_src }}/{{ nginx_status_page }}"
+    dest: "{{ nginx_status_root }}/index.html"
+    owner: root
+    group: root
+    mode: "0644"
+
+# ---------- Vhost ----------
+- name: Copy vhost vào sites-available
+  ansible.builtin.copy:
+    src: "{{ nginx_config_src }}/{{ item }}.conf"
+    dest: "/etc/nginx/sites-available/{{ item }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ nginx_sites }}"
+  notify: Reload nginx
+
+- name: Bật vhost (symlink sites-enabled)
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ item }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ item }}.conf"
+    state: link
+  loop: "{{ nginx_sites }}"
+  notify: Reload nginx
+
+# Site mặc định của Ubuntu chiếm default_server cổng 80 → tắt để request không có Host rơi vào vhost của nhóm
+- name: Tắt site mặc định của Ubuntu
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: Bật và chạy nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started

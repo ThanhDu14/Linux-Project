@@ -15,3 +15,9 @@
   become: true
   roles:
     - wireguard
+
+- name: VM1 — Nginx reverse proxy + TLS tự ký (cấu hình của Thành viên 2 trong config/nginx/)
+  hosts: web
+  become: true
+  roles:
+    - nginx

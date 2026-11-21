@@ -1,0 +1,20 @@
+---
+# Role nginx — CHỈ copy file do Thành viên 2 sở hữu trong config/nginx/ (docs/team.md mục 2.1).
+# Muốn đổi nội dung vhost → sửa trong config/nginx/ qua PR, chủ file review.
+nginx_config_src: "{{ playbook_dir }}/../config/nginx"
+
+# Mỗi vhost = 1 file <tên>.conf trong config/nginx/ → /etc/nginx/sites-available + symlink sites-enabled
+nginx_sites:
+  - app.lab.local
+  - status.lab.local
+
+# Trang tĩnh của status.lab.local (khớp `root` trong config/nginx/status.lab.local.conf)
+nginx_status_root: /var/www/role2-status
+nginx_status_page: status.html
+
+# Chứng chỉ TLS tự ký dùng chung cho 2 vhost (khớp ssl_certificate* trong config/nginx/*.conf).
+# Private key KHÔNG nằm trong repo: sinh trên máy lần đầu, các lần sau giữ nguyên.
+nginx_tls_cert: /etc/ssl/certs/role2-lab.crt
+nginx_tls_key: /etc/ssl/private/role2-lab.key
+nginx_tls_days: 825
+nginx_tls_names: "{{ nginx_sites }}"
