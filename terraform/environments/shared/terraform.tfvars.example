@@ -1,0 +1,14 @@
+# terraform.tfvars.example — shared environment
+# Sao chép thành terraform.tfvars và điền giá trị thực (file này được commit, tfvars thì không).
+
+# AWS region (mặc định ap-southeast-1 — Singapore)
+aws_region = "ap-southeast-1"
+
+# Tên dự án — dùng làm prefix cho tất cả resource name
+project_name = "linux-project"
+
+# Label môi trường trong tag (không thay đổi)
+environment = "shared"
+
+# Số ngày giữ bản backup trên S3 trước khi xóa
+backup_retention_days = 30

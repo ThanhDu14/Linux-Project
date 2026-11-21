@@ -1,0 +1,32 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Ansible generated inventory & secrets
+ansible/inventory/hosts.ini
+*.vault_pass
+*.vault-pass
+vault_password*
+
+# Keys and credentials
+*.pem
+*.key
+*.pub
+.env
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -2,6 +2,7 @@
 
 > Trạng thái: **Bản chốt v1** — cập nhật khi có thay đổi, ghi vào mục [Nhật ký thay đổi](#11-nhật-ký-thay-đổi).
 > Chủ sở hữu tài liệu: Dự (Hạ tầng). Mọi thay đổi kiến trúc phải mở PR và được cả nhóm duyệt.
+> Mới tìm hiểu hạ tầng? Đọc [`infrastructure.md`](infrastructure.md) trước — giải thích từng tầng, NAT/NLB, hop-by-hop một request.
 
 ---
 
@@ -319,7 +320,7 @@ linux-project/
 
 | Quy ước | Cách làm |
 |---|---|
-| Phiên bản | `required_version >= 1.5.0`, provider `hashicorp/aws ~> 5.0` |
+| Phiên bản | `required_version >= 1.10.0` (để dùng `use_lockfile`), provider `hashicorp/aws ~> 5.0` |
 | State bucket | `<project>-terraform-state-<account_id>`, versioning + AES256 + chặn public + `prevent_destroy` |
 | Backend | **Partial config**: `backend.tf` chỉ ghi `key`, `encrypt = true`, `use_lockfile = true`; `bucket` và `region` truyền qua `-backend-config` khi `init` (không hard-code account ID) |
 | Key state | `shared/terraform.tfstate`, `lab/terraform.tfstate` |
@@ -327,7 +328,9 @@ linux-project/
 | `backend.tf` | Chứa khối `terraform {}` + `provider "aws"` |
 | `main.tf` của môi trường | Gọi module theo thứ tự, mỗi khối có comment đánh số `# 1. VPC Module` |
 | Tag | `Name = "${var.project_name}-<tên>"`, `Project`, `Environment` |
-| Biến | Luôn có `type` + `description`; giá trị thật trong `terraform.tfvars` (gitignored), mẫu trong `terraform.tfvars.example` |
+| Biến | Luôn có `type` + `description`; giá trị thật trong `terraform.tfvars` (gitignored), mẫu trong `terraform.tfvars.example`. `admin_cidrs` bắt buộc, 1–10 CIDR, cấm `0.0.0.0/0` |
+| Checkov skip | Đặt **bên trong** khối `resource` (đặt phía trên sẽ bị bỏ qua), luôn kèm lý do |
+| EC2 | `lifecycle { ignore_changes = [ami] }`: AMI mới không tự thay máy; muốn nâng AMI thì `terraform apply -replace=...` |
 
 **Vì sao tách `shared` và `lab`:** `terraform destroy` môi trường `lab` để tiết kiệm chi phí **không làm mất bản backup trên S3** và IAM role. Khi dựng lại `lab`, VM2 gắn lại đúng instance profile cũ và đọc được backup cũ để restore.
 
@@ -388,3 +391,4 @@ Thiết lập **AWS Budget** cảnh báo khi vượt ngưỡng (ví dụ 10 USD)
 |---|---|---|---|
 | 2026-11-03 | v1 | Bản chốt đầu tiên | Dự |
 | 2026-11-03 | v1.1 | Terraform đổi sang khuôn NT548: `terraform/{bootstrap,modules,environments/{shared,lab}}`, module theo dịch vụ AWS, partial backend, checkov | Dự |
+| 2026-11-04 | v1.2 | Review Terraform: gắn `sg-nlb` vào NLB, sửa đường dẫn và ProxyJump của inventory, checkov sạch (skip đặt trong resource), khoá SG mặc định, `ignore_changes = [ami]`, lifecycle S3 có `filter` + abort multipart, `required_version >= 1.10` | Dự |
