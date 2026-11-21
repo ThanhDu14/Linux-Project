@@ -29,3 +29,12 @@ output "vpc_id" {
   description = "VPC ID"
   value       = module.vpc.vpc_id
 }
+
+output "web_domains" {
+  description = "Tên miền của 2 vhost (Ansible nhận qua inventory). Không có domain_name → *.lab.local, curl bằng NLB DNS + Host header"
+  value = {
+    app    = local.app_domain
+    status = local.status_domain
+    dns    = local.enable_dns ? "Route 53 → NLB" : "không có bản ghi DNS"
+  }
+}

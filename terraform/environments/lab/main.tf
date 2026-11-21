@@ -115,3 +115,30 @@ module "nlb" {
   sg_nlb_id        = module.security_group.sg_nlb_id
   vm1_instance_id  = module.vm1.instance_id
 }
+
+# ============================================================
+# Route 53 — app.<domain>, status.<domain> → NLB (chỉ khi có domain_name và enable_nlb)
+# ============================================================
+locals {
+  enable_dns    = var.domain_name != "" && var.enable_nlb
+  app_domain    = var.domain_name != "" ? "app.${var.domain_name}" : "app.lab.local"
+  status_domain = var.domain_name != "" ? "status.${var.domain_name}" : "status.lab.local"
+}
+
+# Zone do Route 53 tự tạo khi mua domain — không quản lý vòng đời ở đây
+data "aws_route53_zone" "this" {
+  count = local.enable_dns ? 1 : 0
+
+  name         = var.domain_name
+  private_zone = false
+}
+
+module "route53" {
+  source = "../../modules/route53"
+  count  = local.enable_dns ? 1 : 0
+
+  route53_zone_id = data.aws_route53_zone.this[0].zone_id
+  record_names    = [local.app_domain, local.status_domain]
+  nlb_dns_name    = module.nlb.nlb_dns_name
+  nlb_zone_id     = module.nlb.nlb_zone_id
+}

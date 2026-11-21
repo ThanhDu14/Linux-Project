@@ -20,6 +20,11 @@ resource "local_file" "ansible_inventory" {
     [web]
     web-app-db-01
 
+    # Tên miền 2 vhost — từ biến Terraform domain_name (trống → *.lab.local)
+    [web:vars]
+    nginx_app_domain=${local.app_domain}
+    nginx_status_domain=${local.status_domain}
+
     [backup]
     backup-01
 

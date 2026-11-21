@@ -90,3 +90,14 @@ variable "wireguard_port" {
   description = "UDP port of the WireGuard VPN on the Bastion (must match the Ansible role wireguard)"
   default     = 51820
 }
+
+variable "domain_name" {
+  type        = string
+  description = "Domain registered on Route 53 (e.g. example.click). Empty = no DNS records, use NLB DNS name + Host header. Records app.<domain> and status.<domain> are created only when enable_nlb = true"
+  default     = ""
+
+  validation {
+    condition     = var.domain_name == "" || can(regex("^([a-z0-9-]+\\.)+[a-z]{2,}$", var.domain_name))
+    error_message = "domain_name phải là tên miền chữ thường không có dấu chấm cuối (vd example.click), hoặc để trống."
+  }
+}
