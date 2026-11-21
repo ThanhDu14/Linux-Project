@@ -113,6 +113,26 @@
     label: "{{ item.name }}"
   notify: Reload nginx
 
+# Role sở hữu mọi *.conf trong sites-available/sites-enabled: vhost không còn trong nginx_sites
+# (vd đổi *.lab.local → domain Route 53) bị gỡ, tránh 2 bộ vhost cùng chạy
+- name: Liệt kê vhost *.conf đang có
+  ansible.builtin.find:
+    paths: [/etc/nginx/sites-available, /etc/nginx/sites-enabled]
+    patterns: "*.conf"
+    file_type: any
+  register: nginx_existing_sites
+
+- name: Gỡ vhost cũ không còn trong nginx_sites
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: >-
+    {{ nginx_existing_sites.files | map(attribute='path')
+       | reject('search', '/(' ~ (nginx_wanted_files | map('regex_escape') | join('|')) ~ ')$') | list }}
+  vars:
+    nginx_wanted_files: "{{ nginx_sites | map(attribute='name') | map('regex_replace', '$', '.conf') | list }}"
+  notify: Reload nginx
+
 # Site mặc định của Ubuntu chiếm default_server cổng 80 → tắt để request không có Host rơi vào vhost của nhóm
 - name: Tắt site mặc định của Ubuntu
   ansible.builtin.file:
