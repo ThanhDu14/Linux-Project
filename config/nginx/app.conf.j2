@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+# Nguồn: config/nginx/app.conf.j2 (Thành viên 2 sở hữu) — biến ở ansible/roles/nginx/defaults/main.yml
+
+server {
+    listen 443 ssl;
+    ssl_certificate     {{ nginx_tls_cert }};
+    ssl_certificate_key {{ nginx_tls_key }};
+    server_name {{ nginx_app_domain }};
+
+    location / {
+        proxy_pass http://{{ nginx_app_upstream }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 80;
+    server_name {{ nginx_app_domain }};
+
+    return 301 https://{{ nginx_app_domain }}$request_uri;
+}

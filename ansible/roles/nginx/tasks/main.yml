@@ -1,13 +1,13 @@
 ---
-- name: Kiểm tra đủ file vhost trong config/nginx/
+- name: Kiểm tra đủ template vhost trong config/nginx/
   ansible.builtin.assert:
     that:
-      - (nginx_config_src ~ '/' ~ item ~ '.conf') is file
-    fail_msg: "Thiếu {{ nginx_config_src }}/{{ item }}.conf (Thành viên 2 sở hữu)"
+      - (nginx_config_src ~ '/' ~ item.template) is file
+    fail_msg: "Thiếu {{ nginx_config_src }}/{{ item.template }} (Thành viên 2 sở hữu)"
     quiet: true
   loop: "{{ nginx_sites }}"
-  delegate_to: localhost
-  become: false
+  loop_control:
+    label: "{{ item.template }}"
   run_once: true
 
 # Chỉ gọi apt khi chưa có nginx: VM1 ở private subnet, cần NAT (enable_nat = true) mới cài được
@@ -73,23 +73,27 @@
     mode: "0644"
 
 # ---------- Vhost ----------
-- name: Copy vhost vào sites-available
-  ansible.builtin.copy:
-    src: "{{ nginx_config_src }}/{{ item }}.conf"
-    dest: "/etc/nginx/sites-available/{{ item }}.conf"
+- name: Render vhost vào sites-available
+  ansible.builtin.template:
+    src: "{{ nginx_config_src }}/{{ item.template }}"
+    dest: "/etc/nginx/sites-available/{{ item.name }}.conf"
     owner: root
     group: root
     mode: "0644"
   loop: "{{ nginx_sites }}"
+  loop_control:
+    label: "{{ item.name }}"
   notify: Reload nginx
 
 - name: Bật vhost (symlink sites-enabled)
   ansible.builtin.file:
-    src: "/etc/nginx/sites-available/{{ item }}.conf"
-    dest: "/etc/nginx/sites-enabled/{{ item }}.conf"
+    src: "/etc/nginx/sites-available/{{ item.name }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ item.name }}.conf"
     state: link
-    force: true # --check: file trong sites-available chưa được copy thật
+    force: true # --check: file trong sites-available chưa được render thật
   loop: "{{ nginx_sites }}"
+  loop_control:
+    label: "{{ item.name }}"
   notify: Reload nginx
 
 # Site mặc định của Ubuntu chiếm default_server cổng 80 → tắt để request không có Host rơi vào vhost của nhóm

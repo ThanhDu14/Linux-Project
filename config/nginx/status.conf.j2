@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+# Nguồn: config/nginx/status.conf.j2 (Thành viên 2 sở hữu) — biến ở ansible/roles/nginx/defaults/main.yml
+
+server {
+    listen 80;
+    server_name {{ nginx_status_domain }};
+
+    return 301 https://{{ nginx_status_domain }}$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name {{ nginx_status_domain }};
+
+    ssl_certificate     {{ nginx_tls_cert }};
+    ssl_certificate_key {{ nginx_tls_key }};
+
+    root {{ nginx_status_root }};
+    index index.html;
+}

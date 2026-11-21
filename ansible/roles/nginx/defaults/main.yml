@@ -1,20 +1,29 @@
 ---
-# Role nginx — CHỈ copy file do Thành viên 2 sở hữu trong config/nginx/ (docs/team.md mục 2.1).
-# Muốn đổi nội dung vhost → sửa trong config/nginx/ qua PR, chủ file review.
+# Role nginx — render template do Thành viên 2 sở hữu trong config/nginx/*.j2 (docs/team.md mục 2.1).
+# Đổi nội dung vhost → sửa .j2 trong config/nginx/ qua PR, chủ file review. Đổi giá trị → sửa biến ở đây.
 nginx_config_src: "{{ playbook_dir }}/../config/nginx"
 
-# Mỗi vhost = 1 file <tên>.conf trong config/nginx/ → /etc/nginx/sites-available + symlink sites-enabled
-nginx_sites:
-  - app.lab.local
-  - status.lab.local
+# Tên miền 2 vhost
+nginx_app_domain: app.lab.local
+nginx_status_domain: status.lab.local
 
-# Trang tĩnh của status.lab.local (khớp `root` trong config/nginx/status.lab.local.conf)
+# Flask (gunicorn) của Thành viên 3 — chỉ nghe localhost (architecture.md mục 4.3)
+nginx_app_upstream: 127.0.0.1:5000
+
+# Mỗi vhost: template trong config/nginx/ → /etc/nginx/sites-available/<name>.conf + symlink sites-enabled
+nginx_sites:
+  - name: "{{ nginx_app_domain }}"
+    template: app.conf.j2
+  - name: "{{ nginx_status_domain }}"
+    template: status.conf.j2
+
+# Trang tĩnh của status vhost
 nginx_status_root: /var/www/role2-status
 nginx_status_page: status.html
 
-# Chứng chỉ TLS tự ký dùng chung cho 2 vhost (khớp ssl_certificate* trong config/nginx/*.conf).
+# Chứng chỉ TLS tự ký dùng chung cho 2 vhost.
 # Private key KHÔNG nằm trong repo: sinh trên máy lần đầu, các lần sau giữ nguyên.
 nginx_tls_cert: /etc/ssl/certs/role2-lab.crt
 nginx_tls_key: /etc/ssl/private/role2-lab.key
 nginx_tls_days: 825
-nginx_tls_names: "{{ nginx_sites }}"
+nginx_tls_names: "{{ nginx_sites | map(attribute='name') | list }}"
