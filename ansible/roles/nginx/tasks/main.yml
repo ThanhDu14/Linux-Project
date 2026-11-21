@@ -53,6 +53,7 @@
     owner: root
     group: root
     mode: "0600"
+  when: not ansible_check_mode # --check: key chưa được sinh thật
 
 # ---------- Trang tĩnh status.lab.local ----------
 - name: Thư mục {{ nginx_status_root }}
@@ -87,6 +88,7 @@
     src: "/etc/nginx/sites-available/{{ item }}.conf"
     dest: "/etc/nginx/sites-enabled/{{ item }}.conf"
     state: link
+    force: true # --check: file trong sites-available chưa được copy thật
   loop: "{{ nginx_sites }}"
   notify: Reload nginx
 
