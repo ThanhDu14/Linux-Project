@@ -13,7 +13,7 @@
 | 1 | **Dự** | | Hạ tầng AWS — Terraform + Ansible | Hệ thống (30%) |
 | 2 | **Trân** | | Reverse proxy & bảo mật host | Bảo mật (20%) |
 | 3 | Thành viên 3 | | Ứng dụng & systemd, ghép báo cáo | Hệ thống (30%), Báo cáo (15%) |
-| 4 | Thành viên 4 | | CSDL & sao lưu | Sao lưu (20%) |
+| 4 | **Duy** (Nguyễn Đức Duy) | | CSDL & sao lưu | Sao lưu (20%) |
 | 5 | **Hưng** | | Bash toolkit & cảnh báo | Tự động hóa (15%) |
 
 ---
@@ -91,7 +91,7 @@
 
 ---
 
-### 2.4 Thành viên 4 — CSDL & sao lưu
+### 2.4 Duy — CSDL & sao lưu
 
 **Phụ trách**
 - PostgreSQL: DB riêng, role ứng dụng quyền tối thiểu, `listen_addresses = 'localhost'`, `pg_hba.conf` chặt; data dir trên `/data`.

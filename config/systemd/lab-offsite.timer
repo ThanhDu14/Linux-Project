@@ -1,0 +1,11 @@
+# /etc/systemd/system/lab-offsite.timer — VM2 — TV4
+# Lịch: 02:30 hằng ngày (30 phút sau backup của VM1 để bản mới đã về tới VM2).
+[Unit]
+Description=Đẩy bản sao lưu lên S3 hằng ngày lúc 02:30
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

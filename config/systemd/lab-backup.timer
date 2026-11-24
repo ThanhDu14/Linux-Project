@@ -1,0 +1,12 @@
+# /etc/systemd/system/lab-backup.timer — VM1 — TV4
+# Lịch: 02:00 hằng ngày. Persistent=true: máy tắt lúc 02:00 thì chạy bù ngay khi bật lại.
+# Bật: systemctl enable --now lab-backup.timer   Xem: systemctl list-timers lab-backup.timer
+[Unit]
+Description=Sao lưu hằng ngày lúc 02:00
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
