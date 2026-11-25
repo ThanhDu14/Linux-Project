@@ -1,0 +1,39 @@
+---
+# UFW — luật CHO PHÉP VÀO theo từng nhóm máy (Thành viên 2 sở hữu). Bảng: docs/architecture.md mục 6.5.
+# Mặc định mọi máy: deny incoming, allow outgoing, deny routed. Không có ở đây = bị chặn.
+#
+# Mỗi luật: port, proto (tcp/udp), from (danh sách nguồn — bỏ trống = mọi nơi), comment.
+# from nhận biến Ansible, vd "{{ admin_cidrs }}" (sinh từ Terraform vào inventory).
+# Sửa xong chạy lại site.yml; role firewall tự xoá luật không còn trong file này.
+
+ufw_rules:
+  bastion:
+    - port: "51820"
+      proto: udp
+      comment: WireGuard VPN
+    - port: "22"
+      proto: tcp
+      from: [10.8.0.0/24]
+      comment: SSH qua VPN
+    - port: "22"
+      proto: tcp
+      from: "{{ admin_cidrs }}"
+      comment: SSH thang - Ansible va du phong (admin_cidrs)
+
+  web:
+    - port: "22"
+      proto: tcp
+      from: [10.0.1.10]
+      comment: SSH tu Bastion
+    - port: "80"
+      proto: tcp
+      comment: HTTP (NLB giu IP khach -> mo moi nguon)
+    - port: "443"
+      proto: tcp
+      comment: HTTPS (NLB, health-check cheo tu VM2)
+
+  backup:
+    - port: "22"
+      proto: tcp
+      from: [10.0.1.10, 10.0.2.10]
+      comment: SSH tu Bastion, rsync backup tu VM1

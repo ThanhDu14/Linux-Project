@@ -17,9 +17,25 @@ nginx_sites:
   - name: "{{ nginx_status_domain }}"
     template: status.conf.j2
 
-# Trang tĩnh của status vhost
+# Server mặc định (Host không khớp vhost nào): /health cho NLB, còn lại 444. Không nằm trong nginx_sites
+# vì không có tên miền — không được đưa vào SAN của chứng chỉ.
+nginx_default_site:
+  name: _default
+  template: default.conf.j2
+
+# Gia cố chung cho mọi vhost → /etc/nginx/conf.d/role2-hardening.conf
+nginx_hardening_template: hardening.conf.j2
+# Sửa thẳng trong /etc/nginx/nginx.conf (Ubuntu khai báo sẵn ở khối http)
+nginx_ssl_protocols: TLSv1.2 TLSv1.3
+# Mozilla "intermediate": để client chọn cipher (bộ cipher mặc định đều mạnh)
+nginx_ssl_prefer_server_ciphers: "off"
+# HSTS (chỉ bật với Let's Encrypt). Lab: 1 ngày — lỡ quay về cert tự ký thì trình duyệt chỉ chặn tối đa 1 ngày.
+# Production thường 31536000 (1 năm).
+nginx_hsts_max_age: 86400
+
+# Trang chào mừng của status vhost (template Jinja2 → index.html)
 nginx_status_root: /var/www/role2-status
-nginx_status_page: status.html
+nginx_status_page: status.html.j2
 
 # Chứng chỉ TLS tự ký dùng chung cho 2 vhost.
 # Private key KHÔNG nằm trong repo: sinh trên máy lần đầu, các lần sau giữ nguyên.

@@ -21,7 +21,7 @@
 members:
   - name: du
     comment: "Dự — TV1 Hạ tầng"
-    # ssh_key: "ssh-ed25519 AAAA... du@linux-project"   # TODO: Dự tạo key cá nhân (hiện dùng ubuntu + .pem)
+    ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICaBXG1AvRXzPxnb3yNGLkp1p0h/oAS3yF8l3SRNhfpD du@linux-project"
     wireguard:
       ip: 10.8.0.2
       public_key: "/PdLQXIu0iRQ8zCCYXdwY2pKD9mlUutXrWyHhnu+CWs="
@@ -30,14 +30,16 @@ members:
       web: full
       backup: full
 
-  # - name: tran
-  #   comment: "Trân — TV2 Nginx & bảo mật"
-  #   ssh_key: "ssh-ed25519 AAAA... tran@linux-project"
-  #   wireguard: { ip: 10.8.0.3, public_key: "<...>" }
-  #   access:
-  #     bastion: full
-  #     web: full
-  #     backup: full
+  - name: tran
+    comment: "Trân — TV2 Nginx & bảo mật"
+    ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDwoJ+Y8IR4rk9krPTFpV0gdl7loV/qplihmgygFiQAZ slim5@DESKTOP-FCSAM0L"
+    wireguard:
+      ip: 10.8.0.3
+      public_key: "jiFU/23HczUUgYj4YSXzdN8H69Ag+JtWMrI4CIrhVyA="
+    access:
+      bastion: full
+      web: full
+      backup: full
 
   # - name: dang
   #   comment: "Đăng — TV3 Ứng dụng & systemd"

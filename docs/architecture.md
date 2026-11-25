@@ -114,10 +114,10 @@ Mọi máy: Ubuntu 22.04 LTS, user quản trị non-root có sudo, đăng nhập
 
 | Vhost | Nội dung |
 |---|---|
-| `app.lab.local` | Reverse proxy tới Flask (endpoint đọc/ghi, `/health`) |
-| `status.lab.local` | Trang trạng thái tĩnh |
+| `app.linux.thanhdu.click` | Reverse proxy tới Flask (endpoint đọc/ghi, `/health`) |
+| `status.linux.thanhdu.click` | Trang chào mừng (`config/nginx/status.html.j2`) + ô trạng thái gọi `/health` (chuyển sang Flask, cần trả JSON `{"status": "ok"}`) |
 
-Truy cập khi không có domain thật: `curl -k -H "Host: app.lab.local" https://<nlb-dns-name>`.
+Tên miền là bản ghi alias A trên Route 53 trỏ vào NLB (`modules/route53`); giải thích chi tiết ở [`infrastructure.md` § 7](infrastructure.md#7-dns--route-53-tên-miền-trỏ-vào-nlb). Không đặt `domain_name` thì vhost là `app.lab.local` / `status.lab.local`, truy cập bằng `curl -k -H "Host: app.lab.local" https://<nlb-dns-name>`.
 
 ---
 
@@ -239,9 +239,11 @@ Dải ephemeral dùng chung: **1024–65535** (Linux dùng 32768–60999; NLB/NA
 
 | Máy | Mặc định | Cho phép vào |
 |---|---|---|
-| bastion-01 | deny incoming, allow outgoing | 51820/udp; 22/tcp chỉ từ `10.8.0.0/24` (VPN) và `admin_cidrs` (dự phòng) — *chờ TV2 cập nhật `config/ufw/`* |
+| bastion-01 | deny incoming, allow outgoing | 51820/udp; 22/tcp chỉ từ `10.8.0.0/24` (VPN) và `admin_cidrs` (Ansible + dự phòng; Terraform ghi vào inventory) |
 | web-app-db-01 | deny incoming, allow outgoing | 22/tcp từ `10.0.1.10`; 80, 443/tcp |
 | backup-01 | deny incoming, allow outgoing | 22/tcp từ `10.0.1.10` và `10.0.2.10` |
+
+Nguồn: `config/ufw/rules.yml` (TV2), triển khai bằng role `firewall`. Role dừng lại nếu IP của chính kết nối Ansible không nằm trong luật SSH (chống tự khoá); bảng luật đổi → `ufw --force reset` rồi áp lại (không để luật thừa). Mặc định thêm `deny (routed)`, log `low`.
 
 ---
 
@@ -402,4 +404,7 @@ Thiết lập **AWS Budget** cảnh báo khi vượt ngưỡng (ví dụ 10 USD)
 | 2026-11-06 | v1.4 | Role Ansible `common`: hostname, múi giờ `Asia/Ho_Chi_Minh`, gói cơ bản; thành viên khai báo một nơi (`ansible/group_vars/all/members.yml`) → user + SSH key (độc quyền) + `/etc/sudoers.d/<user>` theo vai (Dự/Trân sudo đầy đủ có mật khẩu, TV3–5 sudo giới hạn theo lệnh, Bastion chỉ đăng nhập), peer WireGuard suy ra từ cùng danh sách; gỡ người qua `removed_members`. Đã chạy thật: `duy`/`hung` từ `NOPASSWD:ALL` → sudo giới hạn, lệnh ngoài danh sách bị từ chối + ghi `auth.log` | Dự |
 | 2026-11-21 | v1.5 | Role Ansible `nginx` (render `config/nginx/*.j2` của TV2, TLS tự ký sinh trên VM1, sinh lại khi tên miền đổi). Thêm module Terraform `route53` + biến `domain_name` ở `lab`: có domain mua trên Route 53 và `enable_nlb` → bản ghi alias `app.<dns_subdomain>.<domain>`, `status.<dns_subdomain>.<domain>` → NLB (mặc định `dns_subdomain = "linux"` để domain dùng chung cho các bài khác) (zone do Route 53 tự tạo, đọc bằng data source); tên miền truyền sang Ansible qua inventory. Chưa mua domain → giữ `*.lab.local`. Đã chạy thật: NLB → nginx 301/200 | Dự |
 | 2026-11-21 | v1.6 | Domain `thanhdu.click` (Route 53, dùng chung cho các môn; bài này ở `*.linux.thanhdu.click`). TLS: role `nginx` có `nginx_tls_mode` (`auto`: domain thật → Let's Encrypt, `*.lab.local` → tự ký). Let's Encrypt xác minh DNS-01 qua Route 53, certbot chạy trên máy chạy Ansible (VM1 không cần quyền Route 53, chứng chỉ sống qua các lần dựng lại lab), copy `fullchain`/`privkey` lên VM1. Đã chạy thật: `curl https://status.linux.thanhdu.click` 200 không cần `-k`, issuer Let's Encrypt | Dự |
+| 2026-11-21 | v1.7 | Tài liệu: `infrastructure.md` § 7 giải thích DNS Route 53 (hosted zone, bản ghi alias → NLB, `dns_subdomain`, DNS-01 cho Let's Encrypt); sơ đồ `images/aws-architecture.*` thêm Route 53. Bảng vhost § 4.4 đổi sang `*.linux.thanhdu.click` | Dự |
+| 2026-11-21 | v1.8 | Triển khai cấu hình bảo mật của TV2 bằng Ansible: role `ssh_hardening` (copy `config/ssh/` + `AllowUsers` sinh từ `members.yml`, luôn có `ubuntu`; `sshd -t` trước khi reload), `auditd` (`config/audit/` → `augenrules --load`), `fail2ban` (jail `sshd` mọi máy + `nginx-botsearch` trên VM1; máy private bỏ qua IP Bastion `10.0.1.10` để không khoá cả nhóm; chạy CUỐI `site.yml` vì cần log của dịch vụ). Role `nginx`: `default_server` (`/health` → Flask, còn lại 444), `conf.d/role2-hardening.conf` (`server_tokens off`, header bảo mật, HSTS 1 ngày chỉ khi Let's Encrypt), `ssl_protocols TLSv1.2 TLSv1.3`. Sửa regex `*.lab.local` trong chế độ TLS `auto`. Đã test trên container Ubuntu 22.04 (chạy 2 lần không đổi; ban/unban nginx-botsearch; TLS 1.1 bị từ chối). Đã chạy thật trên 3 máy (lần 2 `changed=0`): `sshd -T` đúng, `ausearch -k role2_shadow` thấy truy cập, `status.linux.thanhdu.click` 200 + HSTS + header, TLS 1.1 bị từ chối, request theo IP/DNS NLB bị đóng (444) | Dự |
+| 2026-11-21 | v1.9 | UFW trên cả 3 máy (role `firewall`, `config/ufw/rules.yml`; `admin_cidrs` từ Terraform vào inventory). Lynis: playbook `ansible/lynis.yml` (báo cáo về `reports/lynis/`, gitignore). Khắc phục theo Lynis: UFW (FIRE-4512); SSH `MaxAuthTries 3`, `LogLevel VERBOSE`, tắt X11/agent forwarding, `ClientAlive*`, tắt TCP forwarding trên VM1/VM2 (SSH-7408); banner `/etc/issue(.net)` (BANN-7126/7130); sysctl gia cố kernel (KRNL-6000); chặn module dccp/sctp/rds/tipc/usb-storage (NETW-3200, USB-1000) — role mới `os_hardening`. Inventory thêm `IdentitiesOnly=yes` (vì `MaxAuthTries 3`) và `ServerAliveInterval`. Lần đầu bật UFW chạy nền + nối lại (kết nối SSH cũ bị conntrack coi là INVALID → Ansible treo) | Dự |
 | 2026-11-04 | v1.2 | Review Terraform: gắn `sg-nlb` vào NLB, sửa đường dẫn và ProxyJump của inventory, checkov sạch (skip đặt trong resource), khoá SG mặc định, `ignore_changes = [ami]`, lifecycle S3 có `filter` + abort multipart, `required_version >= 1.10` | Dự |

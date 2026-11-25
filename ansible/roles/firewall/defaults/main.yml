@@ -1,0 +1,6 @@
+---
+# Role firewall — UFW theo bảng luật của Thành viên 2 (config/ufw/rules.yml).
+# Đổi luật → sửa config/ufw/rules.yml qua PR (chủ file review).
+firewall_rules_file: "{{ playbook_dir }}/../config/ufw/rules.yml"
+firewall_host_groups: [bastion, web, backup]
+firewall_logging: low

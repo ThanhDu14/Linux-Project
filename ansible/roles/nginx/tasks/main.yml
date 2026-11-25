@@ -1,13 +1,11 @@
 ---
-- name: Kiểm tra đủ template vhost trong config/nginx/
+- name: Kiểm tra đủ template trong config/nginx/
   ansible.builtin.assert:
     that:
-      - (nginx_config_src ~ '/' ~ item.template) is file
-    fail_msg: "Thiếu {{ nginx_config_src }}/{{ item.template }} (Thành viên 2 sở hữu)"
+      - (nginx_config_src ~ '/' ~ item) is file
+    fail_msg: "Thiếu {{ nginx_config_src }}/{{ item }} (Thành viên 2 sở hữu)"
     quiet: true
-  loop: "{{ nginx_sites }}"
-  loop_control:
-    label: "{{ item.template }}"
+  loop: "{{ nginx_sites | map(attribute='template') | list + [nginx_default_site.template, nginx_hardening_template, nginx_status_page] }}"
   run_once: true
 
 # Chỉ gọi apt khi chưa có nginx: VM1 ở private subnet, cần NAT (enable_nat = true) mới cài được
@@ -24,18 +22,19 @@
   when: "'nginx' not in ansible_facts.packages"
 
 # ---------- Chứng chỉ TLS ----------
+# Trong khối >- (YAML không xử lý escape) viết '\.' — '\\.' ở đây KHÔNG khớp dấu chấm
 - name: Chọn cách cấp chứng chỉ TLS
   ansible.builtin.set_fact:
     nginx_tls_effective_mode: >-
       {{ nginx_tls_mode if nginx_tls_mode != 'auto'
-         else ('selfsigned' if nginx_tls_names | select('search', '\\.lab\\.local$') | list | length > 0
+         else ('selfsigned' if nginx_tls_names | select('search', '\.lab\.local$') | list | length > 0
                else 'letsencrypt') }}
 
 - name: Kiểm tra chế độ TLS hợp lệ
   ansible.builtin.assert:
     that:
       - nginx_tls_effective_mode in ['selfsigned', 'letsencrypt']
-      - nginx_tls_effective_mode == 'selfsigned' or (nginx_tls_names | select('search', '\\.lab\\.local$') | list | length == 0)
+      - nginx_tls_effective_mode == 'selfsigned' or (nginx_tls_names | select('search', '\.lab\.local$') | list | length == 0)
     fail_msg: "nginx_tls_mode={{ nginx_tls_mode }} không hợp lệ, hoặc Let's Encrypt không cấp cho tên *.lab.local"
     quiet: true
 
@@ -59,8 +58,8 @@
     group: root
     mode: "0755"
 
-- name: Trang status (config/nginx/{{ nginx_status_page }})
-  ansible.builtin.copy:
+- name: Trang chào mừng (config/nginx/{{ nginx_status_page }})
+  ansible.builtin.template:
     src: "{{ nginx_config_src }}/{{ nginx_status_page }}"
     dest: "{{ nginx_status_root }}/index.html"
     owner: root
@@ -91,6 +90,23 @@
     label: "{{ item.name }}"
   notify: Reload nginx
 
+- name: Render server mặc định ({{ nginx_default_site.template }})
+  ansible.builtin.template:
+    src: "{{ nginx_config_src }}/{{ nginx_default_site.template }}"
+    dest: "/etc/nginx/sites-available/{{ nginx_default_site.name }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Bật server mặc định
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/{{ nginx_default_site.name }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ nginx_default_site.name }}.conf"
+    state: link
+    force: true
+  notify: Reload nginx
+
 # Role sở hữu mọi *.conf trong sites-available/sites-enabled: vhost không còn trong nginx_sites
 # (vd đổi *.lab.local → domain Route 53) bị gỡ, tránh 2 bộ vhost cùng chạy
 - name: Liệt kê vhost *.conf đang có
@@ -108,7 +124,7 @@
     {{ nginx_existing_sites.files | map(attribute='path')
        | reject('search', '/(' ~ (nginx_wanted_files | map('regex_escape') | join('|')) ~ ')$') | list }}
   vars:
-    nginx_wanted_files: "{{ nginx_sites | map(attribute='name') | map('regex_replace', '$', '.conf') | list }}"
+    nginx_wanted_files: "{{ (nginx_sites | map(attribute='name') | list + [nginx_default_site.name]) | map('regex_replace', '$', '.conf') | list }}"
   notify: Reload nginx
 
 # Site mặc định của Ubuntu chiếm default_server cổng 80 → tắt để request không có Host rơi vào vhost của nhóm
@@ -116,6 +132,30 @@
   ansible.builtin.file:
     path: /etc/nginx/sites-enabled/default
     state: absent
+  notify: Reload nginx
+
+# ---------- Gia cố chung ----------
+- name: Gia cố chung cho mọi vhost (conf.d/role2-hardening.conf)
+  ansible.builtin.template:
+    src: "{{ nginx_config_src }}/{{ nginx_hardening_template }}"
+    dest: /etc/nginx/conf.d/role2-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+# Ubuntu khai báo sẵn 2 dòng này trong khối http của nginx.conf (22.04: còn bật TLSv1, TLSv1.1)
+- name: "nginx.conf: ssl_protocols, ssl_prefer_server_ciphers"
+  ansible.builtin.lineinfile:
+    path: /etc/nginx/nginx.conf
+    regexp: '^\s*#?\s*{{ item.key }}\s'
+    line: "\t{{ item.key }} {{ item.value }};"
+    insertafter: '^http\s*\{'
+  loop:
+    - { key: ssl_protocols, value: "{{ nginx_ssl_protocols }}" }
+    - { key: ssl_prefer_server_ciphers, value: "{{ nginx_ssl_prefer_server_ciphers }}" }
+  loop_control:
+    label: "{{ item.key }}"
   notify: Reload nginx
 
 - name: Bật và chạy nginx

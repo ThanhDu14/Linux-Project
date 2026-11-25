@@ -1,0 +1,11 @@
+# Nginx: chặn IP quét đường dẫn nhạy cảm (wp-login, phpmyadmin, .env, ...) → 404.
+# Filter có sẵn của fail2ban (filter.d/nginx-botsearch.conf). NLB passthrough giữ IP thật
+# của khách nên ban đúng người, không ban nhầm NLB.
+[nginx-botsearch]
+enabled = true
+port = http,https
+logpath = /var/log/nginx/access.log
+          /var/log/nginx/error.log
+maxretry = 3
+findtime = 10m
+bantime = 1h

@@ -1,0 +1,73 @@
+---
+- name: Xác định máy này thuộc group nào (bastion / web / backup)
+  ansible.builtin.set_fact:
+    ssh_hardening_host_group: "{{ ssh_hardening_host_groups | intersect(group_names) | first | default('') }}"
+
+# Cùng quy tắc với role common: chưa có ssh_key → chưa có user; không ghi quyền trên máy này → không được vào
+- name: Danh sách user được SSH vào máy này
+  ansible.builtin.set_fact:
+    ssh_hardening_allow_users: >-
+      {{ (ssh_hardening_always_allow
+          + (members | default([]) | selectattr('ssh_key', 'defined')
+             | selectattr('access.' ~ ssh_hardening_host_group, 'defined')
+             | map(attribute='name') | list)) | unique }}
+
+- name: Kiểm tra trước khi đụng vào sshd
+  ansible.builtin.assert:
+    that:
+      - ssh_hardening_host_group | length > 0
+      - ssh_hardening_ansible_user in ssh_hardening_allow_users
+    fail_msg: >-
+      {{ inventory_hostname }}: không thuộc group {{ ssh_hardening_host_groups }}, hoặc user Ansible
+      ({{ ssh_hardening_ansible_user }}) không có trong AllowUsers → chạy tiếp sẽ tự khoá mình ngoài
+    quiet: true
+
+- name: Kiểm tra đủ file cấu hình trong config/ssh/
+  ansible.builtin.assert:
+    that:
+      - (ssh_hardening_config_src ~ '/' ~ item.src) is file
+    fail_msg: "Thiếu {{ ssh_hardening_config_src }}/{{ item.src }} (Thành viên 2 sở hữu)"
+    quiet: true
+  loop: "{{ ssh_hardening_files }}"
+  loop_control:
+    label: "{{ item.src }}"
+  run_once: true
+
+- name: Copy cấu hình gia cố SSH (config/ssh/)
+  ansible.builtin.copy:
+    src: "{{ ssh_hardening_config_src }}/{{ item.src }}"
+    dest: "/etc/ssh/sshd_config.d/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ ssh_hardening_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+  when: item.groups is not defined or (item.groups | intersect(group_names) | length > 0)
+  notify: Reload sshd
+
+# Drop-in không còn dành cho máy này (vd đổi groups) → gỡ
+- name: Gỡ drop-in role2 không dành cho máy này
+  ansible.builtin.file:
+    path: "/etc/ssh/sshd_config.d/{{ item.dest }}"
+    state: absent
+  loop: "{{ ssh_hardening_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+  when: item.groups is defined and (item.groups | intersect(group_names) | length == 0)
+  notify: Reload sshd
+
+- name: AllowUsers theo members.yml
+  ansible.builtin.template:
+    src: allowusers.conf.j2
+    dest: /etc/ssh/sshd_config.d/01-allowusers.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload sshd
+
+# Kiểm tra ngay (không đợi handler): cấu hình hỏng thì dừng ở đây, sshd đang chạy vẫn dùng bản cũ
+- name: Kiểm tra cú pháp sshd (sshd -t)
+  ansible.builtin.command: sshd -t
+  changed_when: false
+  when: not ansible_check_mode

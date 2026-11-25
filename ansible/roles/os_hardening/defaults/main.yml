@@ -1,0 +1,9 @@
+---
+# Role os_hardening — sysctl, chặn module kernel, banner đăng nhập (cấu hình của Thành viên 2 trong config/).
+# Khắc phục các mục Lynis: KRNL-6000, NETW-3200, USB-1000, BANN-7126, BANN-7130.
+os_hardening_config_src: "{{ playbook_dir }}/../config"
+os_hardening_sysctl: { src: sysctl/99-role2-hardening.conf, dest: /etc/sysctl.d/99-role2-hardening.conf }
+os_hardening_files:
+  - { src: modprobe/role2-blacklist.conf, dest: /etc/modprobe.d/role2-blacklist.conf }
+  - { src: ssh/issue.net, dest: /etc/issue.net }
+  - { src: ssh/issue.net, dest: /etc/issue }

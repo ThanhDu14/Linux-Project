@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# Sinh bởi role fail2ban (biến fail2ban_ignoreip) — áp cho mọi jail
+[DEFAULT]
+ignoreip = {{ fail2ban_ignoreip | join(' ') }}

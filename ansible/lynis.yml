@@ -1,0 +1,52 @@
+---
+# lynis.yml — chấm điểm gia cố (Lynis) trên cả 3 máy, kéo báo cáo về máy chạy Ansible.
+# Chạy (trong ansible/):
+#   ansible-playbook lynis.yml -e lynis_label=truoc     # mốc trước khi khắc phục
+#   ansible-playbook lynis.yml -e lynis_label=sau       # sau khi khắc phục
+# Kết quả: reports/lynis/<label>/<máy>.{dat,log} (gitignore — có thông tin hệ thống), tóm tắt in ra màn hình.
+# Không nằm trong site.yml: Lynis là công cụ ĐÁNH GIÁ, không phải cấu hình.
+
+- name: Lynis — audit hệ thống
+  hosts: all
+  become: true
+  vars:
+    lynis_label: "{{ undef(hint='Thêm -e lynis_label=truoc (hoặc sau)') }}"
+    lynis_out: "{{ playbook_dir }}/../reports/lynis/{{ lynis_label }}"
+  tasks:
+    - name: Cài lynis (máy private cần NAT)
+      ansible.builtin.apt:
+        name: lynis
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Chạy lynis audit system (mất ~1–2 phút)
+      ansible.builtin.command: lynis audit system --quick --no-colors
+      changed_when: false
+
+    - name: Đọc điểm và các mục cảnh báo / gợi ý
+      ansible.builtin.shell: |
+        set -o pipefail
+        f=/var/log/lynis-report.dat
+        echo "index=$(grep -m1 '^hardening_index=' $f | cut -d= -f2)"
+        echo "warnings=$(grep -c '^warning\[\]=' $f || true)"
+        echo "suggestions=$(grep -c '^suggestion\[\]=' $f || true)"
+      args:
+        executable: /bin/bash
+      register: lynis_summary
+      changed_when: false
+
+    - name: Kéo báo cáo về máy chạy Ansible
+      ansible.builtin.fetch:
+        src: "{{ item.src }}"
+        dest: "{{ lynis_out }}/{{ inventory_hostname }}.{{ item.ext }}"
+        flat: true
+      loop:
+        - { src: /var/log/lynis-report.dat, ext: dat }
+        - { src: /var/log/lynis.log, ext: log }
+      loop_control:
+        label: "{{ item.ext }}"
+
+    - name: Tóm tắt
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} [{{ lynis_label }}]: {{ lynis_summary.stdout_lines | join(', ') }}"
