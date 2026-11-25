@@ -1,0 +1,12 @@
+---
+# listen_addresses chỉ có hiệu lực sau restart
+- name: Restart postgresql
+  ansible.builtin.systemd_service:
+    name: "{{ postgresql_service }}"
+    state: restarted
+
+# pg_hba.conf chỉ cần reload — kết nối đang mở không bị ngắt
+- name: Reload postgresql
+  ansible.builtin.systemd_service:
+    name: "{{ postgresql_service }}"
+    state: reloaded

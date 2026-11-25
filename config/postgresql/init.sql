@@ -30,13 +30,26 @@ GRANT CONNECT, TEMPORARY ON DATABASE appdb TO app_user;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO app_user;
 
--- 4. Bảng dữ liệu của ứng dụng
-CREATE TABLE IF NOT EXISTS notes (
-    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    title      varchar(200) NOT NULL,
-    content    text         NOT NULL DEFAULT '',
-    created_at timestamptz  NOT NULL DEFAULT now()
+-- 4. Bảng của app todo (app/ — đăng ký, đăng nhập, CRUD todo)
+-- Người dùng tự đăng ký trên web; tài khoản demo do Ansible tạo (role app → python3 -m todo.manage set-password).
+-- Mật khẩu chỉ lưu dạng hash (werkzeug: pbkdf2-sha256 + salt), không bao giờ lưu bản rõ.
+CREATE TABLE IF NOT EXISTS users (
+    id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    username      varchar(50) NOT NULL UNIQUE,
+    password_hash text        NOT NULL,
+    created_at    timestamptz NOT NULL DEFAULT now()
 );
+
+-- Mỗi todo thuộc 1 user; xoá user thì xoá luôn todo của họ
+CREATE TABLE IF NOT EXISTS todos (
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id    bigint       NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    title      varchar(200) NOT NULL CHECK (btrim(title) <> ''),
+    done       boolean      NOT NULL DEFAULT false,
+    created_at timestamptz  NOT NULL DEFAULT now(),
+    updated_at timestamptz  NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS todos_user_id_idx ON todos (user_id);
 
 -- 5. Quyền của app_user (cả bảng hiện có lẫn bảng tạo sau này bởi postgres)
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
@@ -45,13 +58,3 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO app_user;
-
--- 6. Dữ liệu mẫu (chỉ khi bảng rỗng) để demo backup/restore có dữ liệu thật
-INSERT INTO notes (title, content)
-SELECT v.title, v.content
-FROM (VALUES
-    ('Chào mừng', 'Bản ghi mẫu tạo bởi init.sql'),
-    ('Sao lưu', 'Backup chạy lúc 02:00 hằng ngày bằng systemd timer'),
-    ('Khôi phục', 'restore.sh kiểm tra toàn vẹn bằng số dòng + md5 từng bảng')
-) AS v(title, content)
-WHERE NOT EXISTS (SELECT FROM notes);

@@ -1,0 +1,47 @@
+---
+- name: Kiểm tra biến của role storage
+  ansible.builtin.assert:
+    that:
+      - storage_volume_id is match('^vol-[0-9a-f]+$')
+      - storage_mount is match('^/[a-z]+$')
+    fail_msg: >-
+      {{ inventory_hostname }}: thiếu storage_volume_id (chạy terraform apply để sinh lại inventory)
+      hoặc storage_mount (group_vars/<group>/storage.yml)
+    quiet: true
+
+# Volume attachment có thể xong sau khi máy đã boot
+- name: Đợi ổ EBS xuất hiện ({{ storage_volume_id }})
+  ansible.builtin.wait_for:
+    path: "{{ storage_device }}"
+    timeout: 120
+
+# Đã có filesystem thì KHÔNG định dạng lại (force mặc định false) → dữ liệu cũ an toàn
+- name: Tạo filesystem nếu ổ còn trống
+  community.general.filesystem:
+    dev: "{{ storage_device }}"
+    fstype: "{{ storage_fstype }}"
+    opts: "-L {{ storage_label }}"
+
+- name: Lấy UUID của filesystem
+  ansible.builtin.command: blkid -s UUID -o value {{ storage_device }}
+  register: storage_uuid
+  changed_when: false
+  check_mode: false
+  failed_when: storage_uuid.stdout | length == 0
+
+# fstab ghi theo UUID (không theo /dev/nvme1n1) — đúng cả khi thứ tự ổ đổi
+- name: Mount {{ storage_mount }} + ghi /etc/fstab
+  ansible.posix.mount:
+    path: "{{ storage_mount }}"
+    src: "UUID={{ storage_uuid.stdout }}"
+    fstype: "{{ storage_fstype }}"
+    opts: "{{ storage_mount_opts }}"
+    state: mounted
+
+- name: Quyền thư mục gốc của ổ
+  ansible.builtin.file:
+    path: "{{ storage_mount }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"

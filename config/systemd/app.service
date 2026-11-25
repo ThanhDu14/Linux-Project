@@ -1,0 +1,42 @@
+# /etc/systemd/system/app.service — VM1 (web-app-db-01) — app todo (Flask + gunicorn), code trong app/
+# Chỉ nghe 127.0.0.1:5000 — Nginx proxy /api/ và /health về đây. Log: journalctl -u app
+# Ansible role app cài; cấu hình (mật khẩu DB, SECRET_KEY) ở /etc/todo-app/*.env (root:todo 0640).
+[Unit]
+Description=Todo app (Flask + gunicorn) 127.0.0.1:5000
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=todo
+Group=todo
+WorkingDirectory=/opt/todo-app
+Environment=PYTHONPATH=/opt/todo-app PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/todo-app/app.env
+EnvironmentFile=/etc/todo-app/secret.env
+ExecStart=/usr/bin/gunicorn --bind 127.0.0.1:5000 --workers 2 --access-logfile - --error-logfile - todo:create_app()
+Restart=on-failure
+RestartSec=3
+
+# Gia cố: process chạy user riêng không đăng nhập được, không ghi được hệ thống/code của chính nó
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+---
+# Role postgresql — cài PostgreSQL trên VM1 theo hướng dẫn của TV4 (docs/role4-db-backup.md mục 2).
+# Nội dung cấu hình là của TV4 trong config/postgresql/ — sửa qua PR, Duy review. Role chỉ copy + chạy.
+postgresql_config_src: "{{ playbook_dir }}/../config/postgresql"
+
+# Ubuntu 22.04 → PostgreSQL 14
+postgresql_version: 14
+postgresql_cluster: main
+postgresql_conf_dir: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}"
+postgresql_service: "postgresql@{{ postgresql_version }}-{{ postgresql_cluster }}"
+
+# Dữ liệu nằm trên EBS (role storage mount) — không nằm trên ổ gốc 8 GB
+postgresql_data_mount: /data
+postgresql_data_dir: "{{ postgresql_data_mount }}/pgdata"
+# Cluster Ubuntu tự tạo khi cài gói (trên ổ gốc) — role xoá nó nếu còn trống
+postgresql_default_data_dir: "/var/lib/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}"
+
+# Mật khẩu app_user — trong vault (group_vars/web/vault.yml), TV3 dùng cùng biến cho EnvironmentFile
+postgresql_app_password: "{{ vault_app_db_password }}"

@@ -1,0 +1,33 @@
+---
+# Role backup — cài script sao lưu của TV4 (scripts/, config/backup/, config/systemd/) lên VM1 + VM2.
+# Hướng dẫn gốc: docs/role4-db-backup.md mục 2. Nội dung script/cấu hình là của TV4 — sửa qua PR, Duy review.
+# Luồng: VM1 backup.sh 02:00 ─rsync (key khoá rrsync -wo)─► VM2 /backup/incoming ─► backup-offsite.sh 02:30 ─► S3
+backup_repo_root: "{{ playbook_dir }}/.."
+
+# Đường dẫn ExecStart trong config/systemd/lab-*.service — đổi ở đây thì phải sửa cả unit
+backup_install_dir: /opt/lab-toolkit/scripts
+backup_conf_file: /etc/lab-backup.conf
+
+# ----- VM1 -----
+backup_key_file: /root/.ssh/backup_ed25519
+
+# ----- VM2 -----
+backup_user: rbackup
+backup_incoming_dir: /backup/incoming
+# rrsync có trong gói rsync từ 3.2.4 (jammy-updates có 3.2.7)
+backup_rrsync: /usr/bin/rrsync
+# Tên bucket: Terraform ghi vào inventory ([backup:vars], lấy từ output của environments/shared)
+backup_s3_bucket: ""
+
+# Theo group: script, unit systemd, gói cần cài
+backup_hosts:
+  web:
+    packages: [rsync]
+    scripts: [backup.sh, restore.sh]
+    units: [lab-backup.service, lab-backup.timer]
+    timer: lab-backup.timer
+  backup:
+    packages: [rsync, awscli]
+    scripts: [backup-offsite.sh]
+    units: [lab-offsite.service, lab-offsite.timer]
+    timer: lab-offsite.timer

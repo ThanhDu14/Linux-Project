@@ -9,6 +9,8 @@ nginx_status_domain: status.lab.local
 
 # Flask (gunicorn) của Thành viên 3 — chỉ nghe localhost (architecture.md mục 4.3)
 nginx_app_upstream: 127.0.0.1:5000
+# Giao diện tĩnh của app todo (role app chép app/static vào đây) — root của vhost app
+nginx_app_root: /var/www/app
 
 # Mỗi vhost: template trong config/nginx/ → /etc/nginx/sites-available/<name>.conf + symlink sites-enabled
 nginx_sites:

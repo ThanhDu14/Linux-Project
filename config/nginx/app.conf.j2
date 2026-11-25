@@ -1,5 +1,10 @@
 # {{ ansible_managed }}
 # Nguồn: config/nginx/app.conf.j2 (Thành viên 2 sở hữu) — biến ở ansible/roles/nginx/defaults/main.yml
+# Nginx là frontend: phục vụ giao diện tĩnh (app/static, role app chép vào {{ nginx_app_root }}),
+# chỉ /api/ và /health được proxy về Flask ở {{ nginx_app_upstream }} (chỉ nghe localhost).
+
+# Chống dò mật khẩu / tạo tài khoản hàng loạt: mỗi IP tối đa 10 lần đăng nhập + đăng ký/phút (burst 5), vượt → 429
+limit_req_zone $binary_remote_addr zone=app_login:10m rate=10r/m;
 
 server {
     listen 443 ssl;
@@ -7,12 +12,32 @@ server {
     ssl_certificate_key {{ nginx_tls_key }};
     server_name {{ nginx_app_domain }};
 
+    root {{ nginx_app_root }};
+    index index.html;
+
+    # Header gửi kèm mọi request proxy (kế thừa xuống các location bên dưới)
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # Giao diện tĩnh — Nginx tự trả, không qua Flask
     location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
         proxy_pass http://{{ nginx_app_upstream }};
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location ~ ^/api/(login|register)$ {
+        limit_req zone=app_login burst=5 nodelay;
+        limit_req_status 429;
+        proxy_pass http://{{ nginx_app_upstream }};
+    }
+
+    location = /health {
+        proxy_pass http://{{ nginx_app_upstream }};
     }
 }
 

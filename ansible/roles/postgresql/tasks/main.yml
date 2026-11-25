@@ -1,0 +1,139 @@
+---
+- name: Kiểm tra {{ postgresql_data_mount }} là ổ EBS đã mount (role storage)
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.mounts | selectattr('mount', 'equalto', postgresql_data_mount) | list | length == 1
+    fail_msg: "{{ postgresql_data_mount }} chưa được mount — chạy role storage trước, nếu không DB sẽ nằm trên ổ gốc"
+    quiet: true
+
+- name: Kiểm tra đủ file cấu hình trong config/postgresql/
+  ansible.builtin.assert:
+    that:
+      - (postgresql_config_src ~ '/' ~ item) is file
+    fail_msg: "Thiếu {{ postgresql_config_src }}/{{ item }} (TV4 sở hữu)"
+    quiet: true
+  loop: [10-lab.conf, pg_hba.conf, init.sql]
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Cài PostgreSQL
+  ansible.builtin.apt:
+    name: postgresql
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# ----- Đưa cluster sang /data/pgdata -----
+# Dòng của pg_lsclusters: <version> <cluster> <port> <status> <owner> <data dir> <log file>
+- name: Xem cluster hiện có
+  ansible.builtin.command: pg_lsclusters --no-header
+  register: postgresql_clusters
+  changed_when: false
+  check_mode: false
+
+- name: Thư mục dữ liệu hiện tại của cluster {{ postgresql_version }}/{{ postgresql_cluster }}
+  ansible.builtin.set_fact:
+    postgresql_current_data_dir: >-
+      {{ (postgresql_clusters.stdout_lines | map('split')
+          | selectattr('0', 'equalto', postgresql_version | string)
+          | selectattr('1', 'equalto', postgresql_cluster)
+          | map(attribute='5') | first) | default('') }}
+
+- name: Xoá cluster mặc định trên ổ gốc (chỉ khi còn trống)
+  when: postgresql_current_data_dir == postgresql_default_data_dir
+  block:
+    # Chặn xoá nhầm: cluster mặc định đã có DB của ai đó thì dừng, để người xử lý tay
+    - name: Đếm DB người dùng trong cluster mặc định
+      ansible.builtin.command: >-
+        runuser -u postgres -- psql -XAtc
+        "SELECT count(*) FROM pg_database WHERE datname NOT IN ('postgres', 'template0', 'template1')"
+      register: postgresql_default_dbs
+      changed_when: false
+      check_mode: false
+
+    - name: Cluster mặc định phải trống
+      ansible.builtin.assert:
+        that: postgresql_default_dbs.stdout | int == 0
+        fail_msg: "{{ postgresql_default_data_dir }} đang có {{ postgresql_default_dbs.stdout }} DB — không tự xoá, xử lý tay"
+        quiet: true
+
+    - name: pg_dropcluster {{ postgresql_version }} {{ postgresql_cluster }}
+      ansible.builtin.command: pg_dropcluster {{ postgresql_version }} {{ postgresql_cluster }} --stop
+      changed_when: true
+
+# Nếu /data/pgdata đã có dữ liệu (vd gắn lại ổ EBS cũ) thì pg_createcluster dùng lại, không khởi tạo mới
+- name: pg_createcluster trên {{ postgresql_data_dir }}
+  ansible.builtin.command: >-
+    pg_createcluster {{ postgresql_version }} {{ postgresql_cluster }}
+    --datadir {{ postgresql_data_dir }} --locale C.UTF-8 --encoding UTF8
+  when: postgresql_current_data_dir != postgresql_data_dir
+  changed_when: true
+
+# ----- Cấu hình của TV4 -----
+- name: conf.d/10-lab.conf (listen localhost, SCRAM, log kết nối)
+  ansible.builtin.copy:
+    src: "{{ postgresql_config_src }}/10-lab.conf"
+    dest: "{{ postgresql_conf_dir }}/conf.d/10-lab.conf"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  notify: Restart postgresql
+
+- name: pg_hba.conf
+  ansible.builtin.copy:
+    src: "{{ postgresql_config_src }}/pg_hba.conf"
+    dest: "{{ postgresql_conf_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: Reload postgresql
+
+- name: Bật PostgreSQL khi khởi động
+  ansible.builtin.systemd_service:
+    name: "{{ postgresql_service }}"
+    enabled: true
+    state: started
+
+- name: Áp dụng cấu hình mới trước khi chạy init.sql
+  ansible.builtin.meta: flush_handlers
+
+- name: Đợi PostgreSQL nhận kết nối
+  ansible.builtin.command: pg_isready -q
+  register: postgresql_ready
+  until: postgresql_ready.rc == 0
+  retries: 15
+  delay: 2
+  changed_when: false
+  check_mode: false
+
+# ----- Schema + role ứng dụng -----
+# Mật khẩu đưa qua stdin (\set) thay cho `psql -v` trên dòng lệnh: dòng lệnh ai trên máy cũng xem được qua ps.
+# Trong chuỗi '...' của psql: \ → \\, ' → ''.
+- name: Chạy init.sql (tạo app_user, appdb, bảng users + todos — idempotent)
+  ansible.builtin.command: runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -d postgres -f -
+  args:
+    stdin: |
+      \set app_password '{{ postgresql_app_password | replace('\\', '\\\\') | replace("'", "''") }}'
+      {{ lookup('ansible.builtin.file', postgresql_config_src ~ '/init.sql') }}
+  register: postgresql_init
+  # init.sql luôn in ALTER ROLE/GRANT; chỉ tính là thay đổi khi thật sự tạo mới role/DB/dữ liệu mẫu
+  changed_when: postgresql_init.stdout is search('CREATE ROLE|CREATE DATABASE|INSERT 0 [1-9]')
+  no_log: true
+  when: not ansible_check_mode
+
+# ----- Tự kiểm tra (cũng là thứ demo: đề mục 4.1) -----
+- name: Cổng 5432 đang nghe trên địa chỉ nào
+  ansible.builtin.command: ss -Htln 'sport = :5432'
+  register: postgresql_listen
+  changed_when: false
+  check_mode: false
+
+- name: PostgreSQL chỉ nghe trên loopback
+  ansible.builtin.assert:
+    that:
+      - postgresql_listen.stdout_lines | length > 0
+      - postgresql_listen.stdout_lines | map('split') | map(attribute='3')
+        | reject('match', '^(127\.0\.0\.1|\[::1\]):5432$') | list | length == 0
+    fail_msg: "5432 đang nghe ngoài loopback: {{ postgresql_listen.stdout_lines }}"
+    success_msg: "{{ postgresql_listen.stdout_lines | map('split') | map(attribute='3') | join(', ') }}"

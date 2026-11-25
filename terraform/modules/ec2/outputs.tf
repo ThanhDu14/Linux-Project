@@ -19,3 +19,8 @@ output "eip_allocation_id" {
   description = "EIP allocation ID (empty string if enable_eip = false)"
   value       = var.enable_eip ? aws_eip.this[0].allocation_id : ""
 }
+
+output "data_volume_id" {
+  description = "ID of the EBS data volume (empty string if data_volume_size = 0)"
+  value       = var.data_volume_size > 0 ? aws_ebs_volume.data[0].id : ""
+}

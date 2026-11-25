@@ -9,7 +9,7 @@
 |---|---|---|
 | `config/postgresql/10-lab.conf` | VM1 `/etc/postgresql/14/main/conf.d/` | `listen_addresses='localhost'`, SCRAM, log kết nối |
 | `config/postgresql/pg_hba.conf` | VM1 `/etc/postgresql/14/main/` (640, postgres) | Chỉ `postgres` (peer) và `app_user`→`appdb` từ 127.0.0.1/::1 |
-| `config/postgresql/init.sql` | VM1 (Ansible chạy) | Tạo `app_user`, `appdb`, bảng `notes`, phân quyền tối thiểu, dữ liệu mẫu |
+| `config/postgresql/init.sql` | VM1 (Ansible chạy) | Tạo `app_user`, `appdb`, bảng `users` + `todos` (app todo), phân quyền tối thiểu |
 | `config/backup/lab-backup.conf` | VM1 + VM2 `/etc/lab-backup.conf` (600, root) | Cấu hình chung cho 3 script |
 | `config/backup/authorized_keys.rbackup.example` | VM2 `/home/rbackup/.ssh/authorized_keys` | Khoá key của VM1 bằng `rrsync -wo` |
 | `scripts/backup.sh` | VM1 | Kiểm tra đĩa → `pg_dump` → manifest → `.tar.gz` + sha256 → rsync VM2 → retention |
@@ -21,7 +21,7 @@
 
 Script được giả định cài ở `/opt/lab-toolkit/scripts/` (đường dẫn trong unit systemd). Nếu role `toolkit` đặt chỗ khác thì sửa `ExecStart`.
 
-## 2. Cài đặt (cho role Ansible `postgresql`, `backup_target` — Dự)
+## 2. Cài đặt (role Ansible `postgresql`, `backup` — Dự)
 
 ### VM1 — `web-app-db-01`
 ```bash
@@ -60,7 +60,7 @@ systemctl enable --now lab-offsite.timer
 | Với ai | Việc |
 |---|---|
 | **Trân (TV2)** | `AllowUsers` trong sshd của **VM2** phải có `rbackup`. UFW VM2 đã mở 22 từ `10.0.2.10` (architecture 6.5). |
-| **TV3** | App dùng `app_user`/`appdb` qua `127.0.0.1:5432`. Bảng `notes(id, title, content, created_at)`; cần bảng khác thì sửa `init.sql` qua PR. Báo tên unit systemd để điền `APP_SERVICE`. |
+| **TV3** | App dùng `app_user`/`appdb` qua `127.0.0.1:5432`. Bảng `users(id, username, password_hash, created_at)` + `todos(id, user_id, title, done, created_at, updated_at)`; cần bảng khác thì sửa `init.sql` qua PR. Unit systemd: `app.service` (đã điền `APP_SERVICE`). |
 | **Hưng (TV5)** | Menu `toolkit.sh` gọi `backup.sh`, `restore.sh -l`, `restore.sh`. Khi `lib/common.sh` xong có thể chuyển `backup-common.sh` sang dùng chung. msmtp: đặt `ALERT_TO` là đủ. |
 | **Dự** | Ghi chú: `architecture.md` ghi web ở `/data/www` nhưng Nginx của TV2 phục vụ `/var/www/role2-status` → script sao lưu `WEB_DIR=/var/www` (đổi trong `/etc/lab-backup.conf` nếu chốt khác). |
 
@@ -90,7 +90,7 @@ www/            nội dung web
 # 1. DB chỉ nghe localhost
 ss -tlnp | grep 5432                     # 127.0.0.1:5432 và [::1]:5432
 # 2. Dữ liệu hiện tại
-sudo -u postgres psql -d appdb -c "SELECT * FROM notes"
+sudo -u postgres psql -d appdb -c "SELECT id, user_id, title, done FROM todos"
 # 3. Retention: tạo 1 bản "cũ 10 ngày" để thấy bị xoá
 sudo touch -d '10 days ago' /data/backup/lab-backup-20000101-020000.tar.gz
 # 4. Sao lưu → file có timestamp, rsync sang VM2, retention xoá bản cũ
@@ -98,11 +98,11 @@ sudo /opt/lab-toolkit/scripts/backup.sh
 ssh backup-01 'sudo ls -l /backup/incoming'           # bản mới đã có trên VM2
 ssh backup-01 'sudo /opt/lab-toolkit/scripts/backup-offsite.sh && aws s3 ls s3://<bucket>/web-app-db-01/'
 # 5. PHÁ dữ liệu thật
-sudo -u postgres psql -d appdb -c "DELETE FROM notes"   # hoặc: sudo -u postgres dropdb --force appdb
+sudo -u postgres psql -d appdb -c "DELETE FROM todos"   # hoặc: sudo -u postgres dropdb --force appdb
 curl -k -H 'Host: app.lab.local' https://127.0.0.1/...   # app thấy dữ liệu mất
 # 6. Khôi phục → log in ra "TOÀN VẸN OK", số dòng + md5 khớp manifest
 sudo /opt/lab-toolkit/scripts/restore.sh
-sudo -u postgres psql -d appdb -c "SELECT * FROM notes"
+sudo -u postgres psql -d appdb -c "SELECT id, user_id, title, done FROM todos"
 ```
 Nếu GV hỏi "đĩa đầy thì sao": `echo MIN_FREE_MB=99999999 | sudo tee -a /etc/lab-backup.conf`, chạy `backup.sh` → báo **KHÔNG ĐỦ DUNG LƯỢNG**, exit 1, có mail; xong `sudo sed -i '/MIN_FREE_MB=99999999/d' /etc/lab-backup.conf`.
 

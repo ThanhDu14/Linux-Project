@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Todo</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <!-- Đăng nhập / đăng ký: chung 1 form, đổi qua tab -->
+    <section id="auth-view" hidden>
+      <div class="brand">✓ Todo</div>
+      <div class="card auth">
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" data-mode="login" aria-selected="true">Đăng nhập</button>
+          <button type="button" role="tab" data-mode="register" aria-selected="false">Đăng ký</button>
+        </div>
+        <form id="auth-form">
+          <label>Tên đăng nhập
+            <input name="username" autocomplete="username" minlength="3" maxlength="50" required>
+          </label>
+          <label>Mật khẩu
+            <input name="password" type="password" autocomplete="current-password" required>
+          </label>
+          <label id="confirm-row" hidden>Nhập lại mật khẩu
+            <input name="confirm" type="password" autocomplete="new-password">
+          </label>
+          <p id="auth-hint" class="hint" hidden>3–50 ký tự: chữ không dấu, số, . _ -  ·  Mật khẩu ít nhất 8 ký tự</p>
+          <button type="submit" id="auth-submit">Đăng nhập</button>
+          <p id="auth-error" class="error" role="alert"></p>
+        </form>
+      </div>
+    </section>
+
+    <section id="todo-view" hidden>
+      <header>
+        <div class="brand">✓ Todo</div>
+        <span class="user"><strong id="whoami"></strong></span>
+        <button id="logout" type="button" class="ghost">Đăng xuất</button>
+      </header>
+
+      <div class="card">
+        <form id="add-form" class="row">
+          <input name="title" placeholder="Hôm nay cần làm gì?" maxlength="200" required autocomplete="off">
+          <button type="submit">Thêm</button>
+        </form>
+        <p id="todo-error" class="error" role="alert"></p>
+
+        <div class="toolbar">
+          <span id="counter" class="muted"></span>
+          <div class="filters" role="tablist">
+            <button type="button" data-filter="all" aria-selected="true">Tất cả</button>
+            <button type="button" data-filter="active" aria-selected="false">Chưa xong</button>
+            <button type="button" data-filter="done" aria-selected="false">Đã xong</button>
+          </div>
+        </div>
+
+        <ul id="todo-list"></ul>
+        <p id="empty" class="empty" hidden></p>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

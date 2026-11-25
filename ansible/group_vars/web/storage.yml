@@ -1,0 +1,3 @@
+---
+# Ổ EBS 10 GB: dữ liệu PostgreSQL (/data/pgdata) + bản sao lưu cục bộ (/data/backup) — architecture.md mục 4
+storage_mount: /data

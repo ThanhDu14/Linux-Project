@@ -1,0 +1,28 @@
+---
+# Role app — cài app todo (app/) lên VM1: API Flask chạy gunicorn (systemd), giao diện tĩnh cho Nginx.
+# Gói Python lấy từ apt của Ubuntu (không pip/venv) → cập nhật bảo mật theo unattended-upgrades.
+app_src: "{{ playbook_dir }}/../app"
+app_unit_src: "{{ playbook_dir }}/../config/systemd/app.service"
+
+app_packages: [python3-flask, python3-psycopg2, gunicorn]
+
+# User hệ thống chạy gunicorn — không shell, không home, không sở hữu code
+app_user: todo
+# Các đường dẫn dưới đây khớp config/systemd/app.service — đổi thì sửa cả unit
+app_install_dir: /opt/todo-app
+app_conf_dir: /etc/todo-app
+app_service: app.service
+app_bind: 127.0.0.1:5000
+
+# Giao diện tĩnh — Nginx (config/nginx/app.conf.j2) dùng cùng biến làm root
+app_web_root: "{{ nginx_app_root | default('/var/www/app') }}"
+
+# Kết nối DB (init.sql của TV4 tạo app_user/appdb)
+app_db_name: appdb
+app_db_user: app_user
+app_db_password: "{{ vault_app_db_password }}"
+
+# Tài khoản tạo sẵn (người khác tự đăng ký trên web). Mật khẩu trong vault (group_vars/web/vault.yml).
+app_accounts:
+  - username: demo
+    password: "{{ vault_app_demo_password }}"
