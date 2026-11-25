@@ -13,7 +13,7 @@
 | 1 | **Dự** | | Hạ tầng AWS — Terraform + Ansible | Hệ thống (30%) |
 | 2 | **Trân** | | Reverse proxy & bảo mật host | Bảo mật (20%) |
 | 3 | **Đăng** | | Ứng dụng & systemd, ghép báo cáo | Hệ thống (30%), Báo cáo (15%) |
-| 4 | **Duy** | | CSDL & sao lưu | Sao lưu (20%) |
+| 4 | **Duy** (Nguyễn Đức Duy) | | CSDL & sao lưu | Sao lưu (20%) |
 | 5 | **Hưng** | | Bash toolkit & cảnh báo | Tự động hóa (15%) |
 
 ---

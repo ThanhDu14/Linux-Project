@@ -1,0 +1,6 @@
+# Mẫu /home/rbackup/.ssh/authorized_keys trên VM2 (backup-01) — TV4
+# Key của root@web-app-db-01 (/root/.ssh/backup_ed25519.pub) chỉ được chạy rrsync:
+#   -wo                 : chỉ GHI (không đọc, không liệt kê → VM1 bị chiếm cũng không lấy/xoá được backup cũ)
+#   /backup/incoming    : mọi đường dẫn bị giới hạn trong thư mục này
+#   restrict            : cấm port forwarding, agent, X11, PTY
+command="/usr/bin/rrsync -wo /backup/incoming",restrict ssh-ed25519 AAAA...THAY_BANG_PUBLIC_KEY... root@web-app-db-01

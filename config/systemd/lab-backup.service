@@ -1,0 +1,15 @@
+# /etc/systemd/system/lab-backup.service — VM1 (web-app-db-01) — TV4
+# Chạy backup.sh một lần; được lab-backup.timer kích hoạt. Log: journalctl -u lab-backup
+[Unit]
+Description=Sao lưu PostgreSQL + nội dung web, rsync sang backup-01
+Wants=network-online.target
+After=network-online.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/lab-toolkit/scripts/backup.sh
+# Chạy nhẹ để không làm chậm web
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

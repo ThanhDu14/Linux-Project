@@ -1,0 +1,11 @@
+# /etc/systemd/system/lab-offsite.service — VM2 (backup-01) — TV4
+# Kiểm checksum + retention trên VM2, rồi đẩy lên S3. Log: journalctl -u lab-offsite
+[Unit]
+Description=Retention bản sao lưu trên backup-01 và đẩy lên S3
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/lab-toolkit/scripts/backup-offsite.sh
+Nice=10
