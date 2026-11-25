@@ -1,0 +1,6 @@
+---
+# augenrules gộp rules.d/*.rules → audit.rules rồi nạp vào kernel (không cần restart auditd —
+# auditd từ chối `systemctl restart` theo thiết kế, RefuseManualStop=yes)
+- name: Nạp lại rule audit
+  ansible.builtin.command: augenrules --load
+  changed_when: true

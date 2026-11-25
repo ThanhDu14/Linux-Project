@@ -12,7 +12,7 @@
 |---|---|---|---|---|
 | 1 | **Dự** | | Hạ tầng AWS — Terraform + Ansible | Hệ thống (30%) |
 | 2 | **Trân** | | Reverse proxy & bảo mật host | Bảo mật (20%) |
-| 3 | Thành viên 3 | | Ứng dụng & systemd, ghép báo cáo | Hệ thống (30%), Báo cáo (15%) |
+| 3 | **Đăng** | | Ứng dụng & systemd, ghép báo cáo | Hệ thống (30%), Báo cáo (15%) |
 | 4 | **Duy** (Nguyễn Đức Duy) | | CSDL & sao lưu | Sao lưu (20%) |
 | 5 | **Hưng** | | Bash toolkit & cảnh báo | Tự động hóa (15%) |
 
@@ -59,7 +59,7 @@
 
 **Phụ trách**
 - Nginx: 2 vhost (`app.lab.local`, `status.lab.local`), `proxy_pass` + header (`Host`, `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`).
-- TLS tự ký bằng `openssl`, chuyển hướng 80 → 443 (301).
+- TLS: chứng chỉ Let's Encrypt cho `*.linux.thanhdu.click` (Ansible xin qua DNS Route 53), tự ký bằng `openssl` khi chưa có domain (`*.lab.local`); chuyển hướng 80 → 443 (301).
 - UFW trên cả 3 máy (bảng ở `architecture.md` mục 6.5), giải thích lý do mở từng cổng.
 - Gia cố SSH: tắt root, chỉ dùng khoá, `AllowUsers`.
 - fail2ban: jail `sshd` (bắt buộc), jail cho Nginx (khuyến khích).
@@ -74,7 +74,7 @@
 
 ---
 
-### 2.3 Thành viên 3 — Ứng dụng & systemd (+ ghép báo cáo)
+### 2.3 Đăng (TV3) — Ứng dụng & systemd (+ ghép báo cáo)
 
 **Phụ trách**
 - Ứng dụng Flask (chạy bằng gunicorn): ≥ 1 endpoint đọc, ≥ 1 endpoint ghi, `/health` có kiểm tra kết nối DB.
@@ -91,7 +91,7 @@
 
 ---
 
-### 2.4 Duy — CSDL & sao lưu
+### 2.4 Duy (TV4) — CSDL & sao lưu
 
 **Phụ trách**
 - PostgreSQL: DB riêng, role ứng dụng quyền tối thiểu, `listen_addresses = 'localhost'`, `pg_hba.conf` chặt; data dir trên `/data`.

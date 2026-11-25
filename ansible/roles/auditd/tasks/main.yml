@@ -1,0 +1,38 @@
+---
+- name: Kiểm tra đủ file rule trong config/audit/
+  ansible.builtin.assert:
+    that:
+      - (auditd_config_src ~ '/' ~ item) is file
+    fail_msg: "Thiếu {{ auditd_config_src }}/{{ item }} (Thành viên 2 sở hữu)"
+    quiet: true
+  loop: "{{ auditd_rules }}"
+  run_once: true
+
+# Chỉ gọi apt khi chưa có gói: máy private cần NAT (enable_nat = true) mới cài được
+- name: Liệt kê gói đã cài
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Cài auditd (máy private cần NAT)
+  ansible.builtin.apt:
+    name: auditd
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: "'auditd' not in ansible_facts.packages"
+
+- name: Copy rule (config/audit/)
+  ansible.builtin.copy:
+    src: "{{ auditd_config_src }}/{{ item }}"
+    dest: "/etc/audit/rules.d/{{ item }}"
+    owner: root
+    group: root
+    mode: "0640"
+  loop: "{{ auditd_rules }}"
+  notify: Nạp lại rule audit
+
+- name: Bật và chạy auditd
+  ansible.builtin.systemd_service:
+    name: auditd
+    enabled: true
+    state: started

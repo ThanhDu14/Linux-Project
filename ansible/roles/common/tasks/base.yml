@@ -1,0 +1,40 @@
+---
+# /etc/hosts trước, hostname sau — tránh sudo báo "unable to resolve host" giữa chừng
+- name: Ghi hostname vào /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1 {{ inventory_hostname }}"
+    insertafter: '^127\.0\.0\.1\s'
+
+- name: Không cho cloud-init đặt lại hostname khi reboot
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-preserve-hostname.cfg
+    content: |
+      # Quản lý bởi Ansible (role common) — không sửa tay
+      preserve_hostname: true
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Đặt hostname {{ inventory_hostname }}
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+  notify: Restart rsyslog
+
+- name: Múi giờ {{ common_timezone }}
+  community.general.timezone:
+    name: "{{ common_timezone }}"
+
+# Chỉ gọi apt khi thật sự thiếu gói: VM1/VM2 ở private subnet không ra được internet khi enable_nat = false
+- name: Liệt kê gói đã cài
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Cài gói cơ bản còn thiếu (cần NAT với VM1/VM2)
+  ansible.builtin.apt:
+    name: "{{ common_packages | difference(ansible_facts.packages.keys() | list) }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: common_packages | difference(ansible_facts.packages.keys() | list) | length > 0

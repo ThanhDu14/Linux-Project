@@ -20,16 +20,28 @@ resource "local_file" "ansible_inventory" {
     [web]
     web-app-db-01
 
+    # Tên miền 2 vhost — từ biến Terraform domain_name (trống → *.lab.local)
+    [web:vars]
+    nginx_app_domain=${local.app_domain}
+    nginx_status_domain=${local.status_domain}
+
+    # UFW trên Bastion cho SSH thẳng từ các CIDR này (khớp SG + NACL) — biến Terraform admin_cidrs
+    [bastion:vars]
+    admin_cidrs=${jsonencode(var.admin_cidrs)}
+
     [backup]
     backup-01
 
     [all:vars]
     ansible_user=ubuntu
     ansible_ssh_private_key_file=${var.ssh_private_key_path}
+    # Chỉ dùng đúng key trên, không thử lần lượt key trong ssh-agent (sshd đặt MaxAuthTries 3)
+    # ServerAlive: kết nối chết (vd vừa bật firewall) → báo lỗi sau ~60s thay vì treo vô hạn
+    ansible_ssh_extra_args='-o IdentitiesOnly=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=4'
 
     # Chỉ máy private mới đi qua Bastion; bastion-01 SSH thẳng.
     # Dùng ProxyCommand (thay ProxyJump) để truyền -i, không phụ thuộc ssh-agent.
     [private:vars]
-    ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyCommand="ssh -W %h:%p -q -o StrictHostKeyChecking=no -i ${var.ssh_private_key_path} ubuntu@${module.bastion.public_ip}"'
+    ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ProxyCommand="ssh -W %h:%p -q -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ${var.ssh_private_key_path} ubuntu@${module.bastion.public_ip}"'
   EOT
 }

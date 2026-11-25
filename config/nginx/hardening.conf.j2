@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+# Nguồn: config/nginx/hardening.conf.j2 (Thành viên 2 sở hữu) — biến ở ansible/roles/nginx/defaults/main.yml
+# Nạp trong khối http (conf.d/) → áp cho mọi vhost. ssl_protocols / ssl_prefer_server_ciphers
+# đã có sẵn trong nginx.conf của Ubuntu nên role sửa trực tiếp ở đó (khai báo lại ở đây = lỗi duplicate).
+
+# Không lộ phiên bản nginx trong header Server và trang lỗi
+server_tokens off;
+
+# Phiên TLS: tái sử dụng qua cache phía server, tắt session ticket (khoá ticket không bao giờ xoay vòng)
+ssl_session_timeout 1d;
+ssl_session_cache shared:SSL:10m;
+ssl_session_tickets off;
+
+# Header bảo mật. Chú ý: vhost/location nào tự khai báo add_header sẽ KHÔNG kế thừa các dòng dưới
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+{% if nginx_tls_effective_mode == 'letsencrypt' %}
+# HSTS chỉ khi chứng chỉ được tin (Let's Encrypt): trình duyệt luôn dùng HTTPS, không thử HTTP nữa.
+# Không bật với cert tự ký — trình duyệt sẽ chặn hẳn, không cho bấm "vẫn tiếp tục".
+add_header Strict-Transport-Security "max-age={{ nginx_hsts_max_age }}" always;
+{% endif %}

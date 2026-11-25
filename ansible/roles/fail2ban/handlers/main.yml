@@ -1,0 +1,12 @@
+---
+# Handler chạy theo thứ tự khai báo: kiểm tra cấu hình trước, lỗi thì dừng — không reload cấu hình hỏng
+- name: Kiểm tra cấu hình fail2ban
+  ansible.builtin.command: fail2ban-client --test
+  changed_when: false
+  listen: Reload fail2ban
+
+- name: Reload fail2ban (thật)
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    state: reloaded
+  listen: Reload fail2ban

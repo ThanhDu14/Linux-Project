@@ -1,0 +1,136 @@
+---
+- name: Đọc bảng luật (config/ufw/rules.yml)
+  ansible.builtin.include_vars:
+    file: "{{ firewall_rules_file }}"
+
+- name: Chọn luật cho máy này
+  ansible.builtin.set_fact:
+    firewall_host_group: "{{ firewall_host_groups | intersect(group_names) | first | default('') }}"
+
+# Mỗi (luật, nguồn) thành 1 dòng UFW; from trống → mọi nơi (any)
+- name: Trải phẳng luật theo từng nguồn
+  ansible.builtin.set_fact:
+    firewall_host_rules: >-
+      {%- set out = [] -%}
+      {%- for r in ufw_rules[firewall_host_group] | default([]) -%}
+        {%- for src in (r.from | default(['any'])) -%}
+          {%- set _ = out.append({'port': r.port | string, 'proto': r.proto, 'from': src, 'comment': r.comment | default('')}) -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ out }}
+
+# ---------- Chống tự khoá mình ngoài ----------
+# IP nguồn của CHÍNH kết nối Ansible này (máy thấy) phải nằm trong một luật cho cổng 22
+- name: Lấy IP nguồn của kết nối Ansible
+  ansible.builtin.shell: echo "${SSH_CLIENT%% *}"
+  become: false
+  register: firewall_ssh_client
+  changed_when: false
+  check_mode: false
+
+- name: Kiểm tra kết nối Ansible vẫn được phép sau khi bật UFW
+  ansible.builtin.assert:
+    that:
+      - firewall_host_group | length > 0
+      # Không qua SSH (vd connection docker/local) → SSH_CLIENT trống, không thể tự khoá mình
+      - "ssh_ip == '' or 'any' in ssh_sources or true in (ssh_sources | map('ansible.utils.network_in_network', ssh_ip) | list)"
+    fail_msg: >-
+      {{ inventory_hostname }}: kết nối Ansible đến từ {{ ssh_ip }} nhưng luật SSH trong config/ufw/rules.yml
+      chỉ cho {{ ssh_sources }} → bật UFW sẽ mất SSH. Dừng lại.
+    quiet: true
+  vars:
+    ssh_ip: "{{ firewall_ssh_client.stdout }}"
+    ssh_sources: "{{ firewall_host_rules | selectattr('port', 'eq', '22') | map(attribute='from') | list }}"
+
+# ---------- Áp luật ----------
+- name: Cài ufw (Ubuntu có sẵn)
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+# Ghi lại bộ luật đã áp: đổi → xoá sạch luật cũ rồi áp lại (ufw không tự gỡ luật thừa)
+- name: Lưu bộ luật mong muốn
+  ansible.builtin.template:
+    src: applied.json.j2
+    dest: /etc/ufw/role2-applied.json
+    owner: root
+    group: root
+    mode: "0644"
+  register: firewall_applied
+
+- name: Trạng thái UFW hiện tại
+  ansible.builtin.command: ufw status
+  register: firewall_status
+  changed_when: false
+  check_mode: false
+
+# reset tắt UFW (mọi kết nối được phép) trong vài giây rồi bật lại bên dưới — phiên SSH đang mở không bị ngắt
+- name: Bộ luật đổi → xoá luật cũ
+  ansible.builtin.command: ufw --force reset
+  when: "firewall_applied is changed and 'Status: active' in firewall_status.stdout"
+  register: firewall_reset
+  changed_when: true
+
+- name: Có cần bật UFW không (đang tắt, hoặc vừa reset)
+  ansible.builtin.set_fact:
+    firewall_need_enable: "{{ 'Status: active' not in firewall_status.stdout or firewall_reset is changed }}"
+
+- name: Luật cho phép vào
+  community.general.ufw:
+    rule: allow
+    direction: in
+    to_port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    from_ip: "{{ item.from }}"
+    comment: "role2: {{ item.comment }}"
+  loop: "{{ firewall_host_rules }}"
+  loop_control:
+    label: "{{ item.port }}/{{ item.proto }} từ {{ item.from }}"
+
+- name: Chính sách mặc định
+  community.general.ufw:
+    default: "{{ item.policy }}"
+    direction: "{{ item.direction }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+    - { direction: routed, policy: deny }
+
+- name: Ghi log gói bị chặn
+  community.general.ufw:
+    logging: "{{ firewall_logging }}"
+
+# Đang bật sẵn (không reset) → không đổi gì
+- name: Bật UFW
+  community.general.ufw:
+    state: enabled
+  when: not firewall_need_enable
+
+# Lần đầu bật (hoặc sau reset): kết nối SSH mở TRƯỚC khi có conntrack có thể bị UFW coi là INVALID
+# và chặn → Ansible treo vô hạn chờ kết quả. Cách tránh: chạy nền, bỏ kết nối cũ, nối lại bằng kết nối mới.
+- name: Bật UFW lần đầu (chạy nền)
+  community.general.ufw:
+    state: enabled
+  async: 60
+  poll: 0
+  register: firewall_enable_job
+  when: firewall_need_enable
+
+- name: Bỏ kết nối SSH cũ (mở trước khi bật UFW)
+  ansible.builtin.meta: reset_connection
+  when: firewall_need_enable
+
+- name: Nối lại bằng kết nối mới
+  ansible.builtin.wait_for_connection:
+    delay: 3
+    timeout: 60
+  when: firewall_need_enable
+
+- name: Chờ lệnh bật UFW xong
+  ansible.builtin.async_status:
+    jid: "{{ firewall_enable_job.ansible_job_id }}"
+  register: firewall_enable_result
+  until: firewall_enable_result.finished
+  retries: 12
+  delay: 5
+  when: firewall_need_enable and not ansible_check_mode

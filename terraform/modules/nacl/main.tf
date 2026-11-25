@@ -69,6 +69,17 @@ resource "aws_network_acl_rule" "public_in_ephemeral" {
   to_port        = 65535
 }
 
+resource "aws_network_acl_rule" "public_in_wireguard" {
+  network_acl_id = aws_network_acl.public.id
+  rule_number    = 150
+  egress         = false
+  protocol       = "17" # UDP
+  rule_action    = "allow"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = var.wireguard_port
+  to_port        = var.wireguard_port
+}
+
 # Egress Rules - Public NACL
 resource "aws_network_acl_rule" "public_out_http" {
   network_acl_id = aws_network_acl.public.id
@@ -119,6 +130,18 @@ resource "aws_network_acl_rule" "public_out_ephemeral" {
   rule_number    = 140
   egress         = true
   protocol       = "6"
+  rule_action    = "allow"
+  cidr_block     = "0.0.0.0/0"
+  from_port      = 1024
+  to_port        = 65535
+}
+
+resource "aws_network_acl_rule" "public_out_wireguard" {
+  # NACL không có trạng thái: gói trả lời của WireGuard (UDP) đi về cổng ephemeral của client
+  network_acl_id = aws_network_acl.public.id
+  rule_number    = 150
+  egress         = true
+  protocol       = "17" # UDP
   rule_action    = "allow"
   cidr_block     = "0.0.0.0/0"
   from_port      = 1024

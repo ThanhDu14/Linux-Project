@@ -66,7 +66,7 @@ variable "key_name" {
 
 variable "admin_cidrs" {
   type        = list(string)
-  description = "List of CIDRs allowed to SSH into the Bastion host (e.g. your home IP /32)"
+  description = "CIDRs allowed to SSH directly into the Bastion — used by Ansible (inventory points at the public IP) and as a fallback; the team SSHes over the WireGuard VPN"
 
   validation {
     condition     = length(var.admin_cidrs) >= 1 && length(var.admin_cidrs) <= 10
@@ -83,4 +83,32 @@ variable "ssh_private_key_path" {
   type        = string
   description = "Local path to the private key of key_name; written into the Ansible inventory"
   default     = "~/.ssh/linux-project-key.pem"
+}
+
+variable "wireguard_port" {
+  type        = number
+  description = "UDP port of the WireGuard VPN on the Bastion (must match the Ansible role wireguard)"
+  default     = 51820
+}
+
+variable "domain_name" {
+  type        = string
+  description = "Domain registered on Route 53 (e.g. example.click). Empty = no DNS records, use NLB DNS name + Host header. Records app.<domain> and status.<domain> are created only when enable_nlb = true"
+  default     = ""
+
+  validation {
+    condition     = var.domain_name == "" || can(regex("^([a-z0-9-]+\\.)+[a-z]{2,}$", var.domain_name))
+    error_message = "domain_name phải là tên miền chữ thường không có dấu chấm cuối (vd example.click), hoặc để trống."
+  }
+}
+
+variable "dns_subdomain" {
+  type        = string
+  description = "Subdomain of domain_name reserved for this project, so the same domain can serve other projects (e.g. \"linux\" → app.linux.<domain>, status.linux.<domain>). Empty = records directly under domain_name"
+  default     = "linux"
+
+  validation {
+    condition     = var.dns_subdomain == "" || can(regex("^[a-z0-9-]+$", var.dns_subdomain))
+    error_message = "dns_subdomain chỉ gồm chữ thường, số, dấu gạch ngang (vd linux)."
+  }
 }

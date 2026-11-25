@@ -1,0 +1,42 @@
+---
+# TLS tự ký — dùng cho *.lab.local (không có domain thật) hoặc khi nginx_tls_mode: selfsigned
+# Sinh lần đầu, và sinh lại khi tên miền đổi (vd chuyển *.lab.local → domain Route 53)
+- name: Kiểm tra chứng chỉ TLS hiện có
+  ansible.builtin.stat:
+    path: "{{ nginx_tls_cert }}"
+  register: nginx_tls_cert_stat
+
+- name: Đọc SAN của chứng chỉ hiện có
+  community.crypto.x509_certificate_info:
+    path: "{{ nginx_tls_cert }}"
+  register: nginx_tls_cert_info
+  when: nginx_tls_cert_stat.stat.exists
+
+- name: Sinh chứng chỉ TLS tự ký (lần đầu hoặc khi tên miền đổi)
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -x509
+      - -newkey
+      - rsa:2048
+      - -nodes
+      - -sha256
+      - -days
+      - "{{ nginx_tls_days }}"
+      - -subj
+      - "/CN={{ nginx_tls_names | first }}"
+      - -addext
+      - "subjectAltName={{ nginx_tls_san | join(',') }}"
+      - -keyout
+      - "{{ nginx_tls_key }}"
+      - -out
+      - "{{ nginx_tls_cert }}"
+  vars:
+    nginx_tls_san: "{{ nginx_tls_names | map('regex_replace', '^', 'DNS:') | list }}"
+  when: >-
+    not nginx_tls_cert_stat.stat.exists
+    or (nginx_tls_cert_info.subject_alt_name | default([]) | sort) != (nginx_tls_san | sort)
+  changed_when: true
+  notify: Reload nginx
+

@@ -38,16 +38,18 @@ module "nacl" {
   public_subnet_cidr  = var.public_subnet_cidr
   private_subnet_cidr = var.private_subnet_cidr
   admin_cidrs         = var.admin_cidrs
+  wireguard_port      = var.wireguard_port
 }
 
 # 3. Security Group Module
 module "security_group" {
   source = "../../modules/security-group"
 
-  project_name = var.project_name
-  environment  = var.environment
-  vpc_id       = module.vpc.vpc_id
-  admin_cidrs  = var.admin_cidrs
+  project_name   = var.project_name
+  environment    = var.environment
+  vpc_id         = module.vpc.vpc_id
+  admin_cidrs    = var.admin_cidrs
+  wireguard_port = var.wireguard_port
 }
 
 # 4. EC2 Module — Bastion (public subnet, Elastic IP, no data volume)
@@ -112,4 +114,33 @@ module "nlb" {
   public_subnet_id = module.vpc.public_subnet_id
   sg_nlb_id        = module.security_group.sg_nlb_id
   vm1_instance_id  = module.vm1.instance_id
+}
+
+# ============================================================
+# Route 53 — app.<domain>, status.<domain> → NLB (chỉ khi có domain_name và enable_nlb)
+# ============================================================
+locals {
+  enable_dns = var.domain_name != "" && var.enable_nlb
+  # Mỗi bài/dự án một nhánh con của cùng domain: app.<dns_subdomain>.<domain_name>
+  web_base      = var.domain_name == "" ? "lab.local" : (var.dns_subdomain == "" ? var.domain_name : "${var.dns_subdomain}.${var.domain_name}")
+  app_domain    = "app.${local.web_base}"
+  status_domain = "status.${local.web_base}"
+}
+
+# Zone do Route 53 tự tạo khi mua domain — không quản lý vòng đời ở đây
+data "aws_route53_zone" "this" {
+  count = local.enable_dns ? 1 : 0
+
+  name         = var.domain_name
+  private_zone = false
+}
+
+module "route53" {
+  source = "../../modules/route53"
+  count  = local.enable_dns ? 1 : 0
+
+  route53_zone_id = data.aws_route53_zone.this[0].zone_id
+  record_names    = [local.app_domain, local.status_domain]
+  nlb_dns_name    = module.nlb.nlb_dns_name
+  nlb_zone_id     = module.nlb.nlb_zone_id
 }

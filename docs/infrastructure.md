@@ -14,6 +14,7 @@
 AWS Account
 └── Region ap-southeast-1 (Singapore)
     ├── [toàn cục]  IAM role/profile            ← modules/iam
+    ├── [toàn cục]  Route 53 zone thanhdu.click ← có sẵn khi mua domain; bản ghi: modules/route53
     ├── [region]    S3 backup bucket            ← modules/s3
     └── VPC 10.0.0.0/16                         ← modules/vpc
         ├── Internet Gateway, Route tables, S3 Endpoint
@@ -28,6 +29,10 @@ AWS Account
         (SG gắn vào từng máy/NLB)               ← modules/security-group
 ```
 
+![Sơ đồ kiến trúc AWS](images/aws-architecture.png)
+
+> Nguồn sơ đồ: [`images/aws-architecture.drawio`](images/aws-architecture.drawio) (mở bằng draw.io / diagrams.net).
+
 IAM và S3 thuộc môi trường **`shared`** (sống lâu); mọi thứ trong VPC thuộc môi trường **`lab`** (dựng/huỷ hằng ngày). Vì vậy `terraform destroy` lab không làm mất backup.
 
 ---
@@ -40,6 +45,7 @@ IAM và S3 thuộc môi trường **`shared`** (sống lâu); mọi thứ trong 
   - Role `linux-project-backup-role`: chỉ dịch vụ EC2 được "đóng vai".
   - Policy: `Put/Get/DeleteObject` + `ListBucket` trên **đúng 1 bucket backup** (quyền tối thiểu).
   - Instance profile: "vỏ bọc" để gắn role vào EC2 — **chỉ VM2** được gắn. VM2 gọi `aws s3 sync` không cần lưu access key (credential tạm lấy qua IMDSv2).
+- **Route 53** — DNS cũng là dịch vụ **toàn cục**. Hosted zone `thanhdu.click` do AWS tự tạo khi mua domain, Terraform **chỉ đọc** nó; module `route53` (môi trường `lab`) thêm 2 bản ghi trỏ vào NLB. Chi tiết: [mục 7](#7-dns--route-53-tên-miền-trỏ-vào-nlb).
 - **`bootstrap/`** (chạy 1 lần, không phải module) — bucket chứa tfstate: versioning, mã hoá, chặn public, `prevent_destroy`.
 
 ### Tầng 1 — Region
@@ -84,7 +90,8 @@ Hai subnet tự thấy nhau nhờ route `local` AWS tạo sẵn.
 
 - Lọc ở **ranh giới subnet**; **stateless** (phải mở cả chiều về — dải cổng tạm 1024–65535); có ALLOW và DENY, xét theo số thứ tự.
 - **Không lọc** traffic giữa 2 máy cùng subnet (vd rsync VM1 → VM2).
-- Rule SSH đánh số 120–129 → `admin_cidrs` tối đa 10 CIDR.
+- Rule SSH đánh số 120–129 → `admin_cidrs` tối đa 10 CIDR — đường của Ansible + dự phòng; cả nhóm đi qua VPN.
+- Rule 150: UDP 51820 vào Bastion cho VPN WireGuard, kèm rule ra UDP 1024–65535 cho gói trả lời.
 - Bảng rule: [`architecture.md` § 6.3](architecture.md#63-network-acl).
 
 ### Tầng 6 — NLB (`modules/nlb`)
@@ -100,7 +107,8 @@ Network Load Balancer ở public subnet — cửa vào **duy nhất** cho ngư�
 
 ```
 Internet ──80/443──► sg-nlb ──80/443──► sg-vm1 ◄──443── sg-vm2
-Nhóm ────22───────► sg-bastion ──22──► sg-vm1 ──22──► sg-vm2 (rsync)
+Nhóm ──UDP 51820──► sg-bastion ──22──► sg-vm1 ──22──► sg-vm2 (rsync)
+   (SSH đi trong VPN)
                               └──22──► sg-vm2
 ```
 
@@ -138,7 +146,9 @@ environments/shared/main.tf          environments/lab/main.tf
                                  │     4-6. ec2 ×3 ◄─ subnet_id, sg_id
                                  └──────────► (VM2 nhận instance profile)
                                        7. nlb ◄─ subnet_id, sg_nlb_id, vm1_id
-                                       inventory.tf ◄─ IP các máy
+                                       8. route53 ◄─ nlb_dns_name, nlb_zone_id
+                                          (+ zone_id từ data source)
+                                       inventory.tf ◄─ IP các máy, tên miền
 ```
 
 Output module trước là input module sau; Terraform tự suy ra thứ tự tạo.
@@ -163,7 +173,7 @@ VM1/VM2 ở private subnet, **không có IP public** → bị cô lập cả 2 c
 | | Ai mở kết nối trước? | Chiều | Dùng cho |
 |---|---|---|---|
 | **NLB** | Người bên ngoài | Ngoài → trong | Người dùng truy cập web (chỉ 80/443 tới VM1) |
-| **Bastion** | Nhóm quản trị | Ngoài → trong | SSH (chỉ từ `admin_cidrs`), ProxyJump vào VM1/VM2 |
+| **Bastion** | Nhóm quản trị | Ngoài → trong | VPN WireGuard (UDP 51820) → SSH, ProxyJump vào VM1/VM2; SSH thẳng từ `admin_cidrs` cho Ansible và dự phòng |
 | **NAT Gateway** | Máy bên trong | Trong → ngoài | `apt`, `pip`, mail cảnh báo — **cấm** chiều vào |
 
 ### NAT đặt ở public subnet, nhưng phục vụ private subnet
@@ -224,13 +234,13 @@ Luồng `apt` của VM1 bị dịch **2 lần**: `10.0.2.10 ──NAT GW──�
 
 ## 5. Hop-by-hop: một request web từ Internet
 
-Người dùng `1.2.3.4` chạy `curl -k -H "Host: app.lab.local" https://<nlb-dns>/items`.
+Người dùng `1.2.3.4` chạy `curl https://app.linux.thanhdu.click/items` (chưa có domain: `curl -k -H "Host: app.lab.local" https://<nlb-dns>/items`).
 
 ### Chiều vào
 
 | Hop | Trạm | Gói tin / kiểm tra | Kết quả |
 |---|---|---|---|
-| 0 | DNS | `<nlb-dns>` → IP public NLB `54.1.1.1`. Gói: `1.2.3.4:51234 → 54.1.1.1:443` | |
+| 0 | DNS | `app.linux.thanhdu.click` → Route 53 trả thẳng IP public NLB `54.1.1.1` (bản ghi alias, [mục 7](#7-dns--route-53-tên-miền-trỏ-vào-nlb)). Gói: `1.2.3.4:51234 → 54.1.1.1:443` | |
 | 1 | IGW | Dịch 1:1 → `1.2.3.4:51234 → 10.0.1.50:443` | |
 | 2 | 🧱 NACL public (vào) | Rule 110: TCP 443 từ `0.0.0.0/0` | ✅ |
 | 3 | 🛡️ sg-nlb (vào) | `nlb_in_https`: 443 từ `0.0.0.0/0` | ✅ |
@@ -240,7 +250,7 @@ Người dùng `1.2.3.4` chạy `curl -k -H "Host: app.lab.local" https://<nlb-d
 | 7 | 🧱 NACL private (vào) | Rule 110: TCP 443 từ `0.0.0.0/0` — **bắt buộc**, vì nguồn là IP khách chứ không phải NLB | ✅ |
 | 8 | 🛡️ sg-vm1 (vào) | `vm1_in_https_nlb`: 443 từ `sg-nlb` — **lớp chặn chính**, ai không qua NLB đều bị chặn | ✅ |
 | 9 | 🔥 UFW | allow 443/tcp | ✅ |
-| 10 | Nginx `:443` | Bắt tay TLS (cert tự ký), `Host: app.lab.local` → vhost → `proxy_pass 127.0.0.1:5000` | |
+| 10 | Nginx `:443` | Bắt tay TLS (cert Let's Encrypt), `Host: app.linux.thanhdu.click` → vhost → `proxy_pass 127.0.0.1:5000` | |
 | 11 | Flask `127.0.0.1:5000` | Loopback — không qua SG/NACL/UFW | |
 | 12 | PostgreSQL `127.0.0.1:5432` | Loopback — từ ngoài không thể chạm tới | |
 
@@ -277,7 +287,7 @@ Lý do chọn NLB:
 
 | ALB có, NLB không | Bù bằng |
 |---|---|
-| Định tuyến theo Host/đường dẫn | Nginx vhost (`app.lab.local`, `status.lab.local`) |
+| Định tuyến theo Host/đường dẫn | Nginx vhost (`app.linux.thanhdu.click`, `status.linux.thanhdu.click`) |
 | Redirect HTTP → HTTPS | Nginx trả 301 |
 | AWS WAF | fail2ban + UFW trên host |
 
@@ -285,8 +295,101 @@ Hệ thống production thật (nhiều AZ, domain thật, cần WAF) thì **ALB
 
 ---
 
-## 7. Lưu ý vận hành
+## 7. DNS — Route 53: tên miền trỏ vào NLB
+
+### 7.1 Vì sao cần
+
+NLB có tên dạng `linux-project-nlb-xxxx.elb.ap-southeast-1.amazonaws.com` — dài, **đổi mỗi lần dựng lại lab**, và không xin được chứng chỉ TLS hợp lệ cho nó. Có domain riêng thì người dùng gõ tên cố định, Nginx chọn vhost theo tên đó, và Let's Encrypt cấp chứng chỉ được trình duyệt tin (không cần `curl -k`).
+
+### 7.2 Các thành phần
+
+```
+thanhdu.click                       ← domain mua trên Route 53 (dùng chung cho nhiều môn)
+└── Hosted zone thanhdu.click       ← AWS tự tạo khi mua; Terraform chỉ ĐỌC (data source)
+    ├── NS, SOA                     ← AWS tự tạo, không đụng
+    └── linux.thanhdu.click         ← nhánh riêng của đồ án này (biến dns_subdomain = "linux")
+        ├── app.linux.thanhdu.click     A (alias) → NLB     ← modules/route53
+        └── status.linux.thanhdu.click  A (alias) → NLB     ← modules/route53
+```
+
+| Thành phần | Ở đâu | Vai trò |
+|---|---|---|
+| **Domain đã đăng ký** | Route 53 Registrar | Mua 1 lần; registrar khai báo với `.click` rằng NS của domain là 4 name server của hosted zone |
+| **Hosted zone** | `data "aws_route53_zone" "this"` trong `environments/lab/main.tf` | Không tạo/xoá bằng Terraform — zone gắn với domain, xoá đi là domain "mất" DNS, các môn khác cũng hỏng. Terraform chỉ tra `zone_id` theo tên |
+| **Bản ghi alias A** | `modules/route53` (`aws_route53_record.alias_a`) | `app.` và `status.` → NLB. Tạo cùng NLB, mất cùng NLB |
+| **`dns_subdomain`** | biến `lab`, mặc định `linux` | Gom mọi tên của đồ án này dưới `*.linux.thanhdu.click` → môn khác dùng `*.<môn>.thanhdu.click` không đụng nhau. Không cần zone con: bản ghi `app.linux` nằm thẳng trong zone gốc |
+
+### 7.3 Bản ghi alias là gì, vì sao không dùng CNAME hay A thường
+
+| Loại | Trỏ tới | Vấn đề với NLB |
+|---|---|---|
+| A thường | IP cố định | IP public của NLB do AWS cấp, **đổi mỗi lần dựng lại lab** — ghi cứng IP sẽ hỏng âm thầm |
+| CNAME | Tên khác (`...elb.amazonaws.com`) | Dùng được, nhưng client phải tra **2 lần**, tính phí truy vấn, và không dùng được ở đỉnh zone (`thanhdu.click`) |
+| **A alias** ✅ | Tài nguyên AWS (NLB) | Route 53 tự tra IP hiện tại của NLB và trả về **bản ghi A** ngay — 1 lần tra, miễn phí truy vấn, NLB dựng lại vẫn đúng |
+
+Các tham số trong `modules/route53/main.tf`:
+
+- `alias.name` / `alias.zone_id` — DNS name và **zone ID của chính NLB** (output `nlb_dns_name`, `nlb_zone_id` của `modules/nlb`; zone ID này là của dịch vụ ELB trong region, khác zone ID của `thanhdu.click`).
+- `evaluate_target_health = false` — nếu `true`, khi target 443 unhealthy (chưa cài Flask nên `/health` lỗi) Route 53 sẽ coi bản ghi "chết" và không trả lời → không vào được cả trang `status`. Chỉ có 1 NLB, không có đích dự phòng nên không cần cơ chế này.
+- `allow_overwrite = true` — dựng lại lab khi bản ghi cũ còn sót (vd destroy dở dang) thì ghi đè thay vì báo lỗi "đã tồn tại".
+- `for_each = toset(record_names)` — mỗi tên một bản ghi; thêm vhost chỉ cần thêm tên vào danh sách.
+
+### 7.4 Bật/tắt và luồng biến
+
+```
+terraform.tfvars                     environments/lab/main.tf (locals)
+  domain_name   = "thanhdu.click" ─┐   enable_dns    = domain_name != "" && enable_nlb
+  dns_subdomain = "linux"         ─┼─► web_base      = linux.thanhdu.click
+  enable_nlb    = true            ─┘   app_domain    = app.linux.thanhdu.click
+                                       status_domain = status.linux.thanhdu.click
+                                            │
+              ┌─────────────────────────────┼──────────────────────────────┐
+              ▼                             ▼                              ▼
+   modules/route53 (bản ghi)    inventory.tf → [web:vars]           output web_domains
+                                nginx_app_domain / nginx_status_domain
+                                            ▼
+                                Ansible role nginx: server_name + chứng chỉ TLS
+```
+
+| `domain_name` | `enable_nlb` | Kết quả |
+|---|---|---|
+| `""` | bất kỳ | Không có bản ghi DNS; vhost `*.lab.local`, TLS tự ký; truy cập bằng `curl -k -H "Host: app.lab.local" https://<nlb-dns>` |
+| `"thanhdu.click"` | `false` | Không có bản ghi (không có NLB để trỏ); vhost vẫn tên thật để lần bật NLB sau không phải đổi cấu hình Nginx |
+| `"thanhdu.click"` | `true` | Tạo 2 bản ghi alias → `https://app.linux.thanhdu.click` |
+
+Tắt NLB (`enable_nlb = false`) thì Terraform xoá luôn 2 bản ghi — không để tên miền trỏ vào NLB đã mất.
+
+### 7.5 DNS dùng cho chứng chỉ TLS (DNS-01)
+
+Route 53 còn được dùng để **chứng minh quyền sở hữu domain** với Let's Encrypt (role `nginx`, `tasks/tls_letsencrypt.yml`):
+
+```
+Máy chạy Ansible (certbot --dns-route53)
+  1. Xin cấp cert cho app.linux.thanhdu.click, status.linux.thanhdu.click
+  2. Let's Encrypt đưa 1 chuỗi ngẫu nhiên
+  3. certbot tạo TXT _acme-challenge.app.linux.thanhdu.click = <chuỗi>   (dùng AWS credentials của máy quản trị)
+  4. Let's Encrypt tra DNS công khai, thấy TXT khớp → cấp cert
+  5. certbot xoá TXT; Ansible copy fullchain.pem / privkey.pem lên VM1
+```
+
+Vì xác minh qua DNS chứ không qua HTTP nên: không cần mở thêm cổng, VM1 không cần quyền IAM với Route 53, và xin được cert **trước khi** NLB bật. Mũi tên "TXT (certbot)" trên sơ đồ là bước này.
+
+### 7.6 Kiểm tra
+
+```bash
+terraform -chdir=terraform/environments/lab output web_domains
+dig +short app.linux.thanhdu.click           # ra IP public của NLB
+dig +short NS thanhdu.click                   # 4 name server awsdns-*
+curl -I http://app.linux.thanhdu.click        # 301 → https://
+curl -s https://status.linux.thanhdu.click    # 200, không cần -k
+```
+
+Lưu ý: DNS có cache (TTL của alias = 60 s) — vừa dựng lại NLB có thể mất ~1 phút mới tra ra IP mới. Từ **bên trong** VM1, gọi tên miền này cũng bị dính hairpin NLB như gọi DNS của NLB (mục 8).
+
+---
+
+## 8. Lưu ý vận hành
 
 - **Bật NAT trước** khi chạy Ansible hoặc demo; **bật NLB** trước demo. Tắt cả hai khi không dùng để tiết kiệm (xem [`architecture.md` § 9](architecture.md#9-chi-phí--bậttắt)).
 - **Hairpin NLB**: VM1 gọi chính DNS của NLB sẽ timeout → script trên VM1 kiểm tra qua `https://127.0.0.1` kèm header `Host`.
-- Nginx phải có `default_server` trả **200 cho `/health`** — health check của NLB không gửi `Host: app.lab.local`, thiếu thì VM1 bị đánh dấu unhealthy.
+- Nginx có `default_server` (`config/nginx/default.conf.j2`) chuyển **`/health`** sang Flask, các đường khác đóng kết nối (444) — health check của NLB không gửi `Host` của vhost nào. Chưa có Flask thì `/health` trả 502 → target 443 unhealthy (Route 53 vẫn trỏ vào NLB vì `evaluate_target_health = false`).

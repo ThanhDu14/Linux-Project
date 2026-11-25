@@ -1,0 +1,5 @@
+---
+# Nạp lại toàn bộ /etc/sysctl.d/ (không cần reboot). Chặn module có hiệu lực từ lần nạp module tiếp theo.
+- name: Áp sysctl
+  ansible.builtin.command: sysctl --system
+  changed_when: true

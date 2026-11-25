@@ -1,0 +1,60 @@
+---
+# Role nginx — render template do Thành viên 2 sở hữu trong config/nginx/*.j2 (docs/team.md mục 2.1).
+# Đổi nội dung vhost → sửa .j2 trong config/nginx/ qua PR, chủ file review. Đổi giá trị → sửa biến ở đây.
+nginx_config_src: "{{ playbook_dir }}/../config/nginx"
+
+# Tên miền 2 vhost
+nginx_app_domain: app.lab.local
+nginx_status_domain: status.lab.local
+
+# Flask (gunicorn) của Thành viên 3 — chỉ nghe localhost (architecture.md mục 4.3)
+nginx_app_upstream: 127.0.0.1:5000
+
+# Mỗi vhost: template trong config/nginx/ → /etc/nginx/sites-available/<name>.conf + symlink sites-enabled
+nginx_sites:
+  - name: "{{ nginx_app_domain }}"
+    template: app.conf.j2
+  - name: "{{ nginx_status_domain }}"
+    template: status.conf.j2
+
+# Server mặc định (Host không khớp vhost nào): /health cho NLB, còn lại 444. Không nằm trong nginx_sites
+# vì không có tên miền — không được đưa vào SAN của chứng chỉ.
+nginx_default_site:
+  name: _default
+  template: default.conf.j2
+
+# Gia cố chung cho mọi vhost → /etc/nginx/conf.d/role2-hardening.conf
+nginx_hardening_template: hardening.conf.j2
+# Sửa thẳng trong /etc/nginx/nginx.conf (Ubuntu khai báo sẵn ở khối http)
+nginx_ssl_protocols: TLSv1.2 TLSv1.3
+# Mozilla "intermediate": để client chọn cipher (bộ cipher mặc định đều mạnh)
+nginx_ssl_prefer_server_ciphers: "off"
+# HSTS (chỉ bật với Let's Encrypt). Lab: 1 ngày — lỡ quay về cert tự ký thì trình duyệt chỉ chặn tối đa 1 ngày.
+# Production thường 31536000 (1 năm).
+nginx_hsts_max_age: 86400
+
+# Trang chào mừng của status vhost (template Jinja2 → index.html)
+nginx_status_root: /var/www/role2-status
+nginx_status_page: status.html.j2
+
+# Chứng chỉ TLS tự ký dùng chung cho 2 vhost.
+# Private key KHÔNG nằm trong repo: sinh trên máy lần đầu, các lần sau giữ nguyên.
+nginx_tls_cert: /etc/ssl/certs/role2-lab.crt
+nginx_tls_key: /etc/ssl/private/role2-lab.key
+nginx_tls_days: 825
+nginx_tls_names: "{{ nginx_sites | map(attribute='name') | list }}"
+
+# Cách cấp chứng chỉ: auto | selfsigned | letsencrypt
+#   auto → *.lab.local dùng tự ký; domain thật (Route 53) dùng Let's Encrypt
+nginx_tls_mode: auto
+
+# ----- Let's Encrypt (tasks/tls_letsencrypt.yml) -----
+nginx_certbot: certbot
+# Thư mục certbot trên MÁY CHẠY ANSIBLE — chứa private key, ngoài repo
+nginx_letsencrypt_dir: "{{ lookup('env', 'HOME') }}/.ansible/letsencrypt"
+# true → máy chủ thử (chứng chỉ không được tin, không tính hạn mức) — dùng để thử trước
+nginx_letsencrypt_staging: false
+nginx_letsencrypt_cert_name: "linux-project{{ '-staging' if nginx_letsencrypt_staging else '' }}"
+nginx_letsencrypt_live: "{{ nginx_letsencrypt_dir }}/config/live/{{ nginx_letsencrypt_cert_name }}"
+# Trống → đăng ký không kèm email
+nginx_letsencrypt_email: ""

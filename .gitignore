@@ -30,3 +30,6 @@ vault_password*
 Thumbs.db
 .idea/
 .vscode/
+
+# Báo cáo Lynis (thông tin hệ thống) — ansible/lynis.yml
+reports/

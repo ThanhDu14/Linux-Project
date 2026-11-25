@@ -1,0 +1,22 @@
+---
+# Role ssh_hardening — copy cấu hình SSH của Thành viên 2 (config/ssh/) + sinh AllowUsers từ members.yml.
+# Đổi nội dung gia cố → sửa config/ssh/*.conf qua PR (chủ file review). Đổi người được vào → sửa members.yml.
+ssh_hardening_config_src: "{{ playbook_dir }}/../config/ssh"
+
+# Drop-in trong /etc/ssh/sshd_config.d/. sshd lấy giá trị ĐẦU TIÊN gặp được, Ubuntu include thư mục này
+# ở đầu sshd_config và đọc theo thứ tự tên → tiền tố 00-/01- để thắng 50-cloud-init.conf, 60-cloudimg-settings.conf
+# groups: chỉ copy lên máy thuộc các group này (bỏ trống = mọi máy)
+ssh_hardening_files:
+  - src: sshd-hardening.conf
+    dest: 00-role2-hardening.conf
+  - src: sshd-private.conf
+    dest: 02-role2-private.conf
+    groups: [private]
+
+# User luôn được vào: Ansible đăng nhập bằng `ubuntu` (+ .pem). Bỏ đi là tự khoá mình ngoài.
+ssh_hardening_always_allow: [ubuntu]
+# User Ansible đang dùng để kết nối — phải nằm trong AllowUsers, nếu không role dừng lại
+ssh_hardening_ansible_user: "{{ ansible_user | default('ubuntu') }}"
+
+# Khoá của máy này trong members[].access (giống role common)
+ssh_hardening_host_groups: [bastion, web, backup]

@@ -1,0 +1,41 @@
+---
+# site.yml — điều phối toàn bộ cấu hình. Chạy (trong ansible/):
+#   ansible-playbook site.yml --vault-password-file ~/.ansible/linux-project.vault_pass
+# (không có file mật khẩu thì dùng --ask-vault-pass)
+# Các role khác (storage, postgresql, app, ...) sẽ được thêm vào đây.
+
+- name: Tất cả máy — cơ bản + user/SSH key/sudo của thành viên
+  hosts: all
+  become: true
+  roles:
+    - common
+
+# Sau common: AllowUsers chỉ chứa user đã được common tạo. Cấu hình của Thành viên 2 trong config/{sysctl,modprobe,ssh,audit,ufw}/
+- name: Tất cả máy — gia cố kernel, SSH, auditd, UFW
+  hosts: all
+  become: true
+  roles:
+    - os_hardening
+    - ssh_hardening
+    - auditd
+    - firewall
+
+- name: Bastion — VPN WireGuard (cửa vào cho nhóm quản trị)
+  hosts: bastion
+  become: true
+  roles:
+    - wireguard
+
+- name: VM1 — Nginx reverse proxy + TLS + gia cố (cấu hình của Thành viên 2 trong config/nginx/)
+  hosts: web
+  become: true
+  roles:
+    - nginx
+
+# CUỐI CÙNG: jail đọc log của dịch vụ (nginx, ...) — chạy trước khi dịch vụ được cài thì chưa có file log,
+# fail2ban không khởi động được. Thêm dịch vụ mới có jail → đặt play của nó PHÍA TRÊN play này.
+- name: Tất cả máy — fail2ban (config/fail2ban/ của Thành viên 2)
+  hosts: all
+  become: true
+  roles:
+    - fail2ban

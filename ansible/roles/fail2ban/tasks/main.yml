@@ -1,0 +1,78 @@
+---
+- name: Chọn jail cho máy này
+  ansible.builtin.set_fact:
+    fail2ban_host_jails: "{{ (fail2ban_host_jails | default([])) + [item] }}"
+  loop: "{{ fail2ban_jails }}"
+  loop_control:
+    label: "{{ item.src }}"
+  when: item.groups is not defined or (item.groups | intersect(group_names) | length > 0)
+
+- name: Kiểm tra đủ file jail trong config/fail2ban/
+  ansible.builtin.assert:
+    that:
+      - (fail2ban_config_src ~ '/' ~ item.src) is file
+    fail_msg: "Thiếu {{ fail2ban_config_src }}/{{ item.src }} (Thành viên 2 sở hữu)"
+    quiet: true
+  loop: "{{ fail2ban_jails }}"
+  loop_control:
+    label: "{{ item.src }}"
+  run_once: true
+
+# Chỉ gọi apt khi chưa có gói: máy private cần NAT (enable_nat = true) mới cài được
+- name: Liệt kê gói đã cài
+  ansible.builtin.package_facts:
+    manager: apt
+
+# python3-systemd: jail sshd đọc journald (backend = systemd)
+- name: Cài fail2ban (máy private cần NAT)
+  ansible.builtin.apt:
+    name: [fail2ban, python3-systemd]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: "'fail2ban' not in ansible_facts.packages or 'python3-systemd' not in ansible_facts.packages"
+
+- name: Danh sách IP không bao giờ ban
+  ansible.builtin.template:
+    src: 00-ignoreip.local.j2
+    dest: /etc/fail2ban/jail.d/00-ignoreip.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload fail2ban
+
+- name: Copy jail (config/fail2ban/)
+  ansible.builtin.copy:
+    src: "{{ fail2ban_config_src }}/{{ item.src }}"
+    dest: "/etc/fail2ban/jail.d/{{ item.src }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ fail2ban_host_jails | default([]) }}"
+  loop_control:
+    label: "{{ item.src }}"
+  notify: Reload fail2ban
+
+# Role sở hữu mọi role2-*.local: jail không còn dành cho máy này (vd đổi groups) bị gỡ
+- name: Liệt kê jail role2-* đang có
+  ansible.builtin.find:
+    paths: /etc/fail2ban/jail.d
+    patterns: "role2-*.local"
+  register: fail2ban_existing
+
+- name: Gỡ jail không còn dành cho máy này
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ fail2ban_existing.files | rejectattr('path', 'in', fail2ban_wanted) | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  vars:
+    fail2ban_wanted: "{{ fail2ban_host_jails | default([]) | map(attribute='src') | map('regex_replace', '^', '/etc/fail2ban/jail.d/') | list }}"
+  notify: Reload fail2ban
+
+- name: Bật và chạy fail2ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    enabled: true
+    state: started

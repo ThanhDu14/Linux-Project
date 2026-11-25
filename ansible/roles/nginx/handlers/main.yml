@@ -1,0 +1,12 @@
+---
+# Handler chạy theo thứ tự khai báo: nginx -t trước, lỗi thì dừng — không reload cấu hình hỏng
+- name: Kiểm tra cấu hình nginx
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  listen: Reload nginx
+
+- name: Reload nginx (thật)
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  listen: Reload nginx

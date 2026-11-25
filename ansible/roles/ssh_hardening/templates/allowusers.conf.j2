@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# Sinh từ ansible/group_vars/all/members.yml: thành viên có ssh_key và có quyền trên nhóm "{{ ssh_hardening_host_group }}"
+# + {{ ssh_hardening_always_allow | join(', ') }} (Ansible). Thêm/bớt người: sửa members.yml rồi chạy lại playbook.
+AllowUsers {{ ssh_hardening_allow_users | join(' ') }}

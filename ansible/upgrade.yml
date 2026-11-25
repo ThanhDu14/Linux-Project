@@ -1,0 +1,64 @@
+---
+# upgrade.yml — cập nhật gói (kể cả kernel) rồi reboot nếu cần, TỪNG MÁY MỘT.
+# Chạy (trong ansible/), cần NAT (enable_nat = true):
+#   ansible-playbook upgrade.yml --vault-password-file ~/.ansible/linux-project.vault_pass
+# Thứ tự: backup-01 → web-app-db-01 → bastion-01 (Bastion cuối: VM1/VM2 đi qua nó).
+# Reboot EC2 giữ nguyên IP public của Bastion (chỉ stop/start mới đổi).
+# Máy nào lỗi → dừng luôn, không đụng các máy sau.
+
+- name: Cập nhật gói + reboot lần lượt
+  hosts: all
+  become: true
+  serial: 1
+  order: reverse_inventory
+  any_errors_fatal: true
+  vars:
+    upgrade_services:
+      all: [ssh, ufw, fail2ban, auditd]
+      web: [nginx]
+      bastion: ["wg-quick@wg0"]
+  tasks:
+    - name: apt full-upgrade (giữ file cấu hình đang có)
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+        autoremove: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+        NEEDRESTART_MODE: a # needrestart không hỏi
+      register: upgrade_apt
+
+    - name: Có cần reboot không
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: upgrade_reboot_flag
+
+    - name: Reboot (chờ máy lên lại)
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        msg: "Ansible upgrade.yml — reboot sau khi cập nhật gói"
+      when: upgrade_reboot_flag.stat.exists
+
+    - name: Dịch vụ của máy này
+      ansible.builtin.set_fact:
+        upgrade_check: >-
+          {{ upgrade_services.all
+             + (upgrade_services.web if 'web' in group_names else [])
+             + (upgrade_services.bastion if 'bastion' in group_names else []) }}
+
+    - name: Dịch vụ phải đang chạy
+      ansible.builtin.command: systemctl is-active {{ item }}
+      loop: "{{ upgrade_check }}"
+      changed_when: false
+
+    - name: Kernel đang chạy
+      ansible.builtin.command: uname -r
+      register: upgrade_kernel
+      changed_when: false
+
+    - name: Tóm tắt
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: kernel {{ ansible_kernel }} → {{ upgrade_kernel.stdout }},
+          {{ 'đã reboot' if upgrade_reboot_flag.stat.exists else 'không cần reboot' }},
+          {{ 'có cập nhật gói' if upgrade_apt is changed else 'không có gói mới' }}

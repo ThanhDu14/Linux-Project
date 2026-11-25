@@ -1,0 +1,6 @@
+---
+- name: Cơ bản — hostname, múi giờ, gói
+  ansible.builtin.import_tasks: base.yml
+
+- name: Thành viên — user, SSH key, sudo
+  ansible.builtin.import_tasks: users.yml

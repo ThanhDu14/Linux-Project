@@ -1,0 +1,17 @@
+---
+# Role fail2ban — copy jail của Thành viên 2 (config/fail2ban/) vào /etc/fail2ban/jail.d/.
+# Đổi ngưỡng/thời gian ban → sửa config/fail2ban/*.local qua PR (chủ file review).
+fail2ban_config_src: "{{ playbook_dir }}/../config/fail2ban"
+
+# groups: chỉ copy lên máy thuộc các group này (bỏ trống = mọi máy)
+fail2ban_jails:
+  - src: role2-sshd.local
+  - src: role2-nginx.local
+    groups: [web]
+
+# Không bao giờ ban. Máy private chỉ nhận SSH từ Bastion (10.0.1.10, architecture.md mục 4.2):
+# 1 người gõ sai key 5 lần qua ProxyJump mà ban Bastion thì CẢ NHÓM mất SSH vào máy đó.
+# → demo ban sshd làm trên Bastion (nhận SSH thẳng từ Internet/VPN); demo nginx ban trên VM1.
+fail2ban_ignoreip_base: [127.0.0.1/8, "::1"]
+fail2ban_ignoreip_private: [10.0.1.10]
+fail2ban_ignoreip: "{{ fail2ban_ignoreip_base + (fail2ban_ignoreip_private if 'private' in group_names else []) }}"

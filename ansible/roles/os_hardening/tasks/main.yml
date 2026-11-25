@@ -1,0 +1,31 @@
+---
+- name: Kiểm tra đủ file trong config/
+  ansible.builtin.assert:
+    that:
+      - (os_hardening_config_src ~ '/' ~ item.src) is file
+    fail_msg: "Thiếu {{ os_hardening_config_src }}/{{ item.src }} (Thành viên 2 sở hữu)"
+    quiet: true
+  loop: "{{ os_hardening_files + [os_hardening_sysctl] }}"
+  loop_control:
+    label: "{{ item.src }}"
+  run_once: true
+
+- name: Copy cấu hình gia cố hệ điều hành
+  ansible.builtin.copy:
+    src: "{{ os_hardening_config_src }}/{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ os_hardening_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: sysctl gia cố kernel
+  ansible.builtin.copy:
+    src: "{{ os_hardening_config_src }}/{{ os_hardening_sysctl.src }}"
+    dest: "{{ os_hardening_sysctl.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Áp sysctl

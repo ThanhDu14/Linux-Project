@@ -1,0 +1,6 @@
+---
+# Role auditd — copy rule của Thành viên 2 (config/audit/) vào /etc/audit/rules.d/.
+# Đổi file/khoá được theo dõi → sửa config/audit/*.rules qua PR (chủ file review).
+auditd_config_src: "{{ playbook_dir }}/../config/audit"
+auditd_rules:
+  - role2-identity.rules

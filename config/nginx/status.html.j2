@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<!-- {{ ansible_managed }} — nguồn: config/nginx/status.html.j2 (Thành viên 2 sở hữu) -->
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linux Project — {{ nginx_status_domain }}</title>
+<style>
+  :root {
+    --bg: #f6f7fb; --card: #ffffff; --text: #1d2433; --muted: #5b6475; --line: #e3e6ee;
+    --accent: #6d4aff; --accent-2: #00a4a6; --ok: #138a4b; --ok-bg: #e5f6ec;
+    --bad: #c62f3c; --bad-bg: #fdeaec; --wait: #8a6d00; --wait-bg: #fff6d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10131a; --card: #181c25; --text: #e7eaf2; --muted: #9aa3b5; --line: #2a303d;
+      --accent: #9b85ff; --accent-2: #3cc8ca; --ok: #4fd08a; --ok-bg: #12301f;
+      --bad: #ff6b78; --bad-bg: #3a1519; --wait: #f0c94a; --wait-bg: #332b0c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  .hero {
+    padding: 56px 24px 88px; color: #fff; text-align: center;
+    background: linear-gradient(135deg, #3b2a8f 0%, #6d4aff 45%, #00a4a6 100%);
+  }
+  .hero .tag {
+    display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 13px;
+    background: rgba(255, 255, 255, .16); letter-spacing: .3px;
+  }
+  .hero h1 { margin: 16px 0 8px; font-size: clamp(28px, 5vw, 42px); line-height: 1.2; }
+  .hero p { margin: 0 auto; max-width: 640px; opacity: .9; }
+  main { max-width: 960px; margin: -56px auto 0; padding: 0 20px 40px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px;
+    box-shadow: 0 6px 24px rgba(20, 24, 40, .06);
+  }
+  .card h2 { margin: 0 0 12px; font-size: 15px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+  .status { display: flex; align-items: center; gap: 12px; font-size: 18px; font-weight: 600; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: currentColor; flex: none; }
+  .badge { padding: 6px 12px; border-radius: 999px; display: inline-flex; align-items: center; gap: 8px; }
+  .badge.ok { color: var(--ok); background: var(--ok-bg); }
+  .badge.bad { color: var(--bad); background: var(--bad-bg); }
+  .badge.wait { color: var(--wait); background: var(--wait-bg); }
+  .badge.ok .dot { animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  .muted { color: var(--muted); font-size: 14px; }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 15px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  code { font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  a:hover { text-decoration: underline; }
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+  .flow span { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); font-size: 14px; white-space: nowrap; }
+  .flow i { color: var(--muted); font-style: normal; }
+  .wide { grid-column: 1 / -1; }
+  ul.team { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  ul.team li { padding: 10px 12px; border-radius: 10px; background: var(--bg); }
+  ul.team b { display: block; }
+  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 8px 20px 32px; }
+</style>
+</head>
+<body>
+  <header class="hero">
+    <span class="tag">Đồ án Linux &amp; Ứng dụng · AWS ap-southeast-1</span>
+    <h1>Chào mừng đến với Linux Project</h1>
+    <p>Hệ thống web 3 tầng (Nginx → Flask → PostgreSQL) trên Ubuntu, dựng bằng Terraform và Ansible,
+       có sao lưu tự động, giám sát và gia cố bảo mật.</p>
+  </header>
+
+  <main>
+    <div class="grid">
+      <section class="card">
+        <h2>Trạng thái ứng dụng</h2>
+        <div class="status"><span id="health" class="badge wait"><span class="dot"></span><span id="health-text">Đang kiểm tra…</span></span></div>
+        <p class="muted" id="health-detail">Gọi <code>/health</code> — Flask kiểm tra kết nối PostgreSQL.</p>
+      </section>
+
+      <section class="card">
+        <h2>Dịch vụ</h2>
+        <dl>
+          <dt>Ứng dụng</dt><dd><a href="https://{{ nginx_app_domain }}/">{{ nginx_app_domain }}</a></dd>
+          <dt>Trang này</dt><dd>{{ nginx_status_domain }}</dd>
+          <dt>Máy chủ</dt><dd><code>{{ inventory_hostname }}</code></dd>
+          <dt>TLS</dt><dd>{{ "Let's Encrypt" if nginx_tls_effective_mode | default('') == 'letsencrypt' else 'Tự ký (lab)' }}</dd>
+        </dl>
+      </section>
+
+      <section class="card wide">
+        <h2>Đường đi của một request</h2>
+        <div class="flow">
+          <span>Trình duyệt</span><i>→</i>
+          <span>Route 53</span><i>→</i>
+          <span>NLB :443</span><i>→</i>
+          <span>Nginx (TLS, vhost)</span><i>→</i>
+          <span>Flask 127.0.0.1:5000</span><i>→</i>
+          <span>PostgreSQL 127.0.0.1:5432</span>
+        </div>
+        <p class="muted">Ứng dụng và CSDL chỉ nghe trên localhost — từ Internet chỉ chạm được tới Nginx qua NLB.</p>
+      </section>
+
+      <section class="card wide">
+        <h2>Nhóm thực hiện</h2>
+        <ul class="team">
+          <li><b>Dự</b><span class="muted">Hạ tầng AWS</span></li>
+          <li><b>Trân</b><span class="muted">Reverse proxy &amp; bảo mật</span></li>
+          <li><b>Đăng</b><span class="muted">Ứng dụng &amp; systemd</span></li>
+          <li><b>Duy</b><span class="muted">CSDL &amp; sao lưu</span></li>
+          <li><b>Hưng</b><span class="muted">Tự động hoá &amp; cảnh báo</span></li>
+        </ul>
+      </section>
+    </div>
+  </main>
+
+  <footer>Phục vụ bởi Nginx · {{ inventory_hostname }}</footer>
+
+<script>
+  // /health cùng tên miền (status vhost chuyển sang Flask) — không cần CORS
+  async function checkHealth() {
+    const badge = document.getElementById('health');
+    const text = document.getElementById('health-text');
+    const detail = document.getElementById('health-detail');
+    try {
+      const res = await fetch('/health', { cache: 'no-store' });
+      const body = await res.json().catch(() => ({}));
+      const ok = res.ok && body.status === 'ok';
+      badge.className = 'badge ' + (ok ? 'ok' : 'bad');
+      text.textContent = ok ? 'Hoạt động bình thường' : 'Có sự cố (HTTP ' + res.status + ')';
+      detail.textContent = ok ? 'Ứng dụng và CSDL đều phản hồi.'
+        : (res.status === 502 ? 'Nginx không gọi được ứng dụng Flask.' : 'Ứng dụng báo lỗi — kiểm tra kết nối CSDL.');
+    } catch (e) {
+      badge.className = 'badge bad';
+      text.textContent = 'Không kết nối được';
+      detail.textContent = 'Không gọi được /health.';
+    }
+    detail.textContent += ' · cập nhật ' + new Date().toLocaleTimeString('vi-VN');
+  }
+  checkHealth();
+  setInterval(checkHealth, 15000);
+</script>
+</body>
+</html>

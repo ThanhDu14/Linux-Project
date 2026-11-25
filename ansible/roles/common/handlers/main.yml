@@ -1,0 +1,6 @@
+---
+# rsyslog giữ hostname cũ trong bộ nhớ → log (/var/log/auth.log, syslog) vẫn ghi tên cũ tới khi restart
+- name: Restart rsyslog
+  ansible.builtin.systemd_service:
+    name: rsyslog
+    state: restarted
