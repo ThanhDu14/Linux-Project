@@ -64,10 +64,7 @@ require_uint() {
 }
 
 on_err() {
-    local rc line cmd
-    rc=$?
-    line=${1:-?}
-    cmd=${2:-unknown}
+    local rc=$? line=${1:-?} cmd=${2:-unknown}
     trap - ERR
     log ERROR "command failed (exit $rc) at line $line: $cmd"
     alert "${SCRIPT_NAME} failed" "Command failed with exit $rc at line $line: $cmd" || true

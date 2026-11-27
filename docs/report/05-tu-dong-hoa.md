@@ -12,7 +12,7 @@ Các script bật `set -Eeuo pipefail`, dùng thư viện `common.sh` để th�
 
 ## 5.2 Deploy an toàn và rollback
 
-`deploy.sh` chụp snapshot các target hiện hành trước khi thay đổi. App source lấy từ staging riêng và đồng bộ vào `/opt/todo-app` với owner `todo:todo`; cấu hình nhạy cảm được giữ riêng ở `/etc/todo-app`. Với Nginx, script đồng bộ cấu hình, sửa owner/mode, chạy `nginx -t`, reload Nginx, rồi gọi health URL đã cấu hình. VM1 dùng `http://127.0.0.1:5000/health` trên loopback để tránh hairpin NLB. Nếu bước deploy lỗi, snapshot được khôi phục và cấu hình cũ được kiểm tra/reload. Snapshot gần nhất được giữ dưới tên `last_good`; tham số `-r` yêu cầu khôi phục snapshot thành công gần nhất.
+`deploy.sh` chụp snapshot các target hiện hành trước khi thay đổi. App source lấy từ staging riêng và đồng bộ vào `/opt/todo-app` với owner `todo:todo`; cấu hình nhạy cảm được giữ riêng ở `/etc/todo-app`. Với app, script khởi động lại `app.service` và xác nhận `http://127.0.0.1:5000/health`. Với Nginx, script đồng bộ cấu hình, sửa owner/mode, chạy `nginx -t`, reload Nginx, rồi xác nhận `https://127.0.0.1/health` kèm header `Host: $APP_DOMAIN` để kiểm tra luồng reverse proxy mà không gặp hairpin NLB. Nếu bước deploy lỗi, snapshot được khôi phục và cấu hình cũ được kiểm tra/reload. Snapshot gần nhất được giữ dưới tên `last_good`; tham số `-r` yêu cầu khôi phục snapshot thành công gần nhất.
 
 > 📷 *Hình 5.2 — Cấu hình cố tình lỗi bị từ chối, rollback chạy, endpoint cũ vẫn trả HTTP 200.*
 

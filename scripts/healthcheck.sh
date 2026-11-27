@@ -9,9 +9,10 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)
 
 usage() {
     cat <<'EOF'
-Usage: healthcheck.sh [-m local|remote|both] [-c CPU_MAX] [-M RAM_MAX] [-d DISK_MAX] [-q] [-h|--help]
+Usage: healthcheck.sh [-m local|remote|both] [-c CPU_MAX] [-M RAM_MAX] [-d DISK_MAX] [-N] [-q] [-h|--help]
 
 Checks configured services, ports, disk mounts, CPU/RAM thresholds, and HTTP health.
+-N bypasses the alert cooldown (automatically bypassed when -c/-M/-d overrides are set).
 On failure, logs a consolidated report, sends an alert (if configured), and exits non-zero.
 EOF
 }
@@ -23,12 +24,14 @@ CPU_MAX=${HC_CPU_MAX:-85}
 RAM_MAX=${HC_RAM_MAX:-85}
 DISK_MAX=${HC_DISK_MAX:-80}
 QUIET=0
-while getopts ':m:c:M:d:qh' opt; do
+NO_COOLDOWN=0
+while getopts ':m:c:M:d:Nqh' opt; do
     case $opt in
         m) MODE=$OPTARG ;;
-        c) CPU_MAX=$OPTARG ;;
-        M) RAM_MAX=$OPTARG ;;
-        d) DISK_MAX=$OPTARG ;;
+        c) CPU_MAX=$OPTARG; NO_COOLDOWN=1 ;;
+        M) RAM_MAX=$OPTARG; NO_COOLDOWN=1 ;;
+        d) DISK_MAX=$OPTARG; NO_COOLDOWN=1 ;;
+        N) NO_COOLDOWN=1 ;;
         q) QUIET=1 ;;
         h) usage; exit 0 ;;
         :) usage >&2; die "Option -$OPTARG requires a value" ;;
@@ -77,19 +80,34 @@ ram_usage() {
 
 # Host-local resource/service checks run in every mode, including remote-only HTTP checks.
 cpu=$(cpu_usage) || die "Unable to calculate CPU usage"
-log INFO "CPU usage: ${cpu}% (threshold ${CPU_MAX}%)"
-(( cpu <= CPU_MAX )) || FAILURES+=("CPU ${cpu}% exceeds ${CPU_MAX}%")
+if (( cpu <= CPU_MAX )); then
+    check_result "CPU usage ${cpu}% (threshold ${CPU_MAX}%)" 0
+else
+    check_result "CPU ${cpu}% exceeds ${CPU_MAX}%" 1
+fi
 
 ram=$(ram_usage) || die "Unable to calculate RAM usage"
-log INFO "RAM usage: ${ram}% (threshold ${RAM_MAX}%)"
-(( ram <= RAM_MAX )) || FAILURES+=("RAM ${ram}% exceeds ${RAM_MAX}%")
+if (( ram <= RAM_MAX )); then
+    check_result "RAM usage ${ram}% (threshold ${RAM_MAX}%)" 0
+else
+    check_result "RAM ${ram}% exceeds ${RAM_MAX}%" 1
+fi
 
 for mount in ${HC_DISK_MOUNTS:-/}; do
-    usage_pct=$(df -P -- "$mount" | awk 'NR == 2 { gsub(/%/, "", $5); print $5 }')
-    [[ $usage_pct =~ ^[0-9]+$ ]] || { FAILURES+=("Could not read disk usage for $mount"); continue; }
-    log INFO "Disk $mount: ${usage_pct}% (threshold ${DISK_MAX}%)"
-    (( usage_pct <= DISK_MAX )) || FAILURES+=("Disk $mount ${usage_pct}% exceeds ${DISK_MAX}%")
+    if usage_pct=$(df -P -- "$mount" 2>/dev/null | awk 'NR == 2 { gsub(/%/, "", $5); print $5 }') && [[ $usage_pct =~ ^[0-9]+$ ]]; then
+        if (( usage_pct <= DISK_MAX )); then
+            check_result "Disk $mount ${usage_pct}% (threshold ${DISK_MAX}%)" 0
+        else
+            check_result "Disk $mount ${usage_pct}% exceeds ${DISK_MAX}%" 1
+        fi
+    else
+        check_result "Could not read disk usage for $mount" 1
+    fi
 done
+
+if [[ -n ${HC_SERVICES:-} || -n ${HC_CHECK_BACKUP_UNIT:-} ]]; then
+    require_cmd systemctl
+fi
 
 for service in ${HC_SERVICES:-}; do
     if systemctl is-active --quiet "$service"; then
@@ -98,6 +116,10 @@ for service in ${HC_SERVICES:-}; do
         check_result "service $service is not active" 1
     fi
 done
+
+if [[ -n ${HC_PORTS:-} ]]; then
+    require_cmd ss
+fi
 
 for port in ${HC_PORTS:-}; do
     if ss -H -ltn "sport = :$port" | grep -q .; then
@@ -115,23 +137,32 @@ if [[ -n ${HC_CHECK_BACKUP_UNIT:-} ]]; then
     fi
 fi
 
-if [[ ${HC_CHECK_LOCAL_HTTP:-yes} == yes && ( $MODE == local || $MODE == both ) ]]; then
-    health_url=${HEALTH_URL:-http://127.0.0.1:5000/health}
-    if curl -fsSk --connect-timeout 3 --max-time 8 "$health_url" >/dev/null; then
-        check_result "local HTTP health endpoint is healthy" 0
-    else
-        check_result "local HTTP health endpoint failed ($health_url)" 1
+check_http_health() {
+    local label=$1 url=$2 host_header=${3:-} resp=""
+    local curl_args=(-fsSk --connect-timeout 3 --max-time 8)
+    if [[ -n $host_header ]]; then
+        curl_args+=(-H "Host: $host_header")
     fi
+    if resp=$(curl "${curl_args[@]}" "$url" 2>/dev/null) && [[ $resp == *ok* ]]; then
+        check_result "$label is healthy ($url)" 0
+    else
+        check_result "$label failed ($url)" 1
+    fi
+}
+
+hc_domain=${HC_APP_DOMAIN:-${APP_DOMAIN:-}}
+
+if [[ ${HC_CHECK_LOCAL_HTTP:-yes} == yes && ( $MODE == local || $MODE == both ) ]]; then
+    require_cmd curl
+    health_url=${HEALTH_URL:-http://127.0.0.1:5000/health}
+    check_http_health "local HTTP health endpoint" "$health_url" "$hc_domain"
 fi
 
 if [[ $MODE == remote || $MODE == both ]]; then
+    require_cmd curl
     remote_url=${HC_REMOTE_URL:-}
     [[ -n $remote_url ]] || die "HC_REMOTE_URL must be configured for remote checks"
-    if curl -fsSk --connect-timeout 3 --max-time 8 "$remote_url" >/dev/null; then
-        check_result "remote HTTP health endpoint is healthy ($remote_url)" 0
-    else
-        check_result "remote HTTP health endpoint failed ($remote_url)" 1
-    fi
+    check_http_health "remote HTTP health endpoint" "$remote_url" "$hc_domain"
 fi
 
 if (( ${#FAILURES[@]} > 0 )); then
@@ -146,7 +177,7 @@ if (( ${#FAILURES[@]} > 0 )); then
         read -r last < "$state_file" || last=0
         [[ $last =~ ^[0-9]+$ ]] || last=0
     fi
-    if (( cooldown == 0 || now - last >= cooldown )); then
+    if (( NO_COOLDOWN || cooldown == 0 || now - last >= cooldown )); then
         alert "Health check failed on $(hostname)" "$report" || true
         if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
             printf '%s\n' "$now" > "$state_file"
@@ -156,4 +187,4 @@ if (( ${#FAILURES[@]} > 0 )); then
     fi
     exit 1
 fi
-log INFO 'Health check passed'
+(( QUIET )) || log INFO 'Health check passed'

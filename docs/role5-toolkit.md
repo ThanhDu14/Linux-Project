@@ -14,7 +14,7 @@ Theo thông tin TV1 xác nhận: VM1 dùng `HC_MODE=local`, `HC_CHECK_LOCAL_HTTP
 
 Cổng egress TCP 587 đã có trong Terraform SG/NACL. VM private cần `enable_nat=true` để gửi mail ra SMTP. `ALERT_TO` để trống thì toolkit ghi log nhưng không gửi thư.
 
-> **Tích hợp cần xác nhận với TV1/TV3/TV4:** Unit app là `app.service`; cấu hình trong `/etc/todo-app` không được đưa vào staging/deploy. Unit backup VM1 là `lab-backup.service`, dùng `/opt/lab-toolkit/scripts/backup.sh`; menu phải gọi chính xác đường dẫn này theo sudoers. Quyền deploy/healthcheck/logrotate/restore cần được đối chiếu với sudoers của lab khi role được tích hợp. Tên timer là `lab-healthcheck.timer`.
+> **Tích hợp đã xác nhận với TV1:** Unit app là `app.service`, thư mục `/opt/todo-app`, user `todo`, cấu hình trong `/etc/todo-app` (không đưa vào staging/deploy). Unit backup VM1 là `lab-backup.service`; menu gọi trực tiếp `sudo /opt/lab-toolkit/scripts/backup.sh` (không qua symlink), còn `restore.sh` bị sudo từ chối đối với user `hung` và menu báo lỗi rõ ràng. Tên unit health-check là `lab-healthcheck.service` và `lab-healthcheck.timer`.
 
 ## 2. Sử dụng
 
@@ -44,16 +44,16 @@ Ví dụ staging được cấu hình bên ngoài thư mục đích:
 └── app/                       # nếu deploy app/all
 ```
 
-Ứng dụng chạy tại `/opt/todo-app`, service `app.service`, owner `todo:todo`; secret vẫn nằm ở `/etc/todo-app` và không được đặt trong staging. Trên VM1, app health mặc định là `http://127.0.0.1:5000/health`; health chéo từ VM2 dùng `https://10.0.2.10/health` với `curl -k`. Deploy Nginx còn kiểm tra cú pháp và health endpoint đã cấu hình.
+Ứng dụng chạy tại `/opt/todo-app`, service `app.service`, owner `todo:todo`; secret vẫn nằm ở `/etc/todo-app` và không được đặt trong staging. Trên VM1, app health mặc định là `http://127.0.0.1:5000/health` (`HEALTH_URL`); deploy Nginx xác minh qua `https://127.0.0.1/health` (`NGINX_HEALTH_URL`) kèm header `Host: $APP_DOMAIN` (tránh hairpin NLB); health chéo từ VM2 dùng `https://10.0.2.10/health` với `curl -k`.
 
 ### Health check
 
-`healthcheck.sh` kiểm tra CPU, RAM, các mount point, services, TCP listen ports và HTTPS health endpoint. Local check dùng `127.0.0.1`; remote check trên VM2 truy cập VM1 bằng private IP `10.0.2.10`. Khi có lỗi, script gom lỗi vào một cảnh báo, ghi log ra stderr/journald và file log, gửi mail nếu msmtp được cấu hình, rồi trả exit code khác 0.
+`healthcheck.sh` kiểm tra CPU, RAM, các mount point, services, TCP listen ports và HTTP/HTTPS health endpoint (phải trả HTTP 2xx và body chứa `ok`). Local check trên VM1 gọi `http://127.0.0.1:5000/health`; remote check trên VM2 đặt `HC_CHECK_LOCAL_HTTP=no` và truy cập VM1 bằng `https://10.0.2.10/health`. Khi có lỗi, script gom lỗi vào một cảnh báo, ghi log ra stderr/journald và file log, gửi mail nếu msmtp được cấu hình (bỏ qua cooldown khi dùng `-N` hoặc khi override ngưỡng `-c`/`-M`/`-d`), rồi trả exit code khác 0.
 
 ```bash
 sudo /opt/lab-toolkit/scripts/healthcheck.sh -m local
 sudo /opt/lab-toolkit/scripts/healthcheck.sh -m remote
-sudo /opt/lab-toolkit/scripts/healthcheck.sh -m local -d 0  # cố ý kích hoạt cảnh báo disk khi chạy trực tiếp
+sudo /opt/lab-toolkit/scripts/healthcheck.sh -m local -d 0  # cố ý kích hoạt cảnh báo disk khi chạy trực tiếp (tự bypass cooldown)
 journalctl -u lab-healthcheck.service
 systemctl list-timers lab-healthcheck.timer
 ```
@@ -91,6 +91,5 @@ Lưu ý demo: chỉ dừng service trong thời gian ngắn, sau đó bật lạ
 
 - Timer chạy sau boot hai phút và sau đó mỗi năm phút; không chạy bù các lần bỏ lỡ khi máy tắt.
 - Timer systemd và cài đặt `msmtp` cần được tích hợp vào Ansible role `toolkit` của TV1; repo hiện chưa có role đó.
-- Cấu hình unit app, đường dẫn artifact deploy và ownership cần khớp với ứng dụng TV3 trước khi triển khai thật.
 - Script health check hiện kiểm tra sự tồn tại của TCP listener cho mỗi port được cấu hình; port chỉ áp dụng trên VM1. Cấu hình danh sách riêng theo từng host.
 - `msmtp` chỉ được xem là hoàn tất sau khi gửi thư thử thành công tới hộp thư thật; file mẫu không chứa secret và không tự cấu hình tài khoản.
