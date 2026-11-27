@@ -14,8 +14,9 @@ resource "local_file" "ansible_inventory" {
     bastion-01 ansible_host=${module.bastion.public_ip}
 
     [private]
-    web-app-db-01 ansible_host=${module.vm1.private_ip}
-    backup-01     ansible_host=${module.vm2.private_ip}
+    # storage_volume_id: ổ EBS dữ liệu — role storage tìm nó qua /dev/disk/by-id (tên /dev/nvmeXn1 có thể đổi)
+    web-app-db-01 ansible_host=${module.vm1.private_ip} storage_volume_id=${module.vm1.data_volume_id}
+    backup-01     ansible_host=${module.vm2.private_ip} storage_volume_id=${module.vm2.data_volume_id}
 
     [web]
     web-app-db-01
@@ -31,6 +32,10 @@ resource "local_file" "ansible_inventory" {
 
     [backup]
     backup-01
+
+    # Bucket S3 off-site (environments/shared) — role backup ghi vào /etc/lab-backup.conf trên VM2
+    [backup:vars]
+    backup_s3_bucket=${data.terraform_remote_state.shared.outputs.backup_bucket_name}
 
     [all:vars]
     ansible_user=ubuntu

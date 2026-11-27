@@ -1,0 +1,149 @@
+---
+- name: Kiểm tra trước khi cài
+  ansible.builtin.assert:
+    that:
+      - (app_src ~ '/todo/__init__.py') is file
+      - (app_src ~ '/static/index.html') is file
+      - app_unit_src is file
+      # EnvironmentFile của systemd: giá trị trong '...' không có escape → cấm ' và xuống dòng
+      - app_db_password is not search("['\n]")
+      - app_accounts | map(attribute='password') | map('length') | min >= 8
+    fail_msg: "Thiếu file trong app/ hoặc config/systemd/app.service; hoặc mật khẩu DB chứa ' / xuống dòng; hoặc mật khẩu tài khoản < 8 ký tự"
+    quiet: true
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Cài gói Python (apt)
+  ansible.builtin.apt:
+    name: "{{ app_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: User hệ thống {{ app_user }}
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    home: /nonexistent
+
+# ----- Code: root sở hữu, todo chỉ đọc → app bị chiếm cũng không sửa được code của chính nó -----
+- name: Thư mục code
+  ansible.builtin.file:
+    path: "{{ app_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Code Python (app/todo → {{ app_install_dir }}/todo)
+  ansible.builtin.copy:
+    src: "{{ app_src }}/todo"
+    dest: "{{ app_install_dir }}/"
+    owner: root
+    group: root
+    mode: u=rwX,go=rX
+  notify: Restart app
+
+# ----- Cấu hình: root:todo 0640 — chỉ root và process app đọc được -----
+- name: Thư mục cấu hình
+  ansible.builtin.file:
+    path: "{{ app_conf_dir }}"
+    state: directory
+    owner: root
+    group: "{{ app_user }}"
+    mode: "0750"
+
+- name: app.env (kết nối DB)
+  ansible.builtin.copy:
+    dest: "{{ app_conf_dir }}/app.env"
+    content: |
+      # Ansible role app sinh ra — không sửa tay
+      DB_HOST=127.0.0.1
+      DB_PORT=5432
+      DB_NAME={{ app_db_name }}
+      DB_USER={{ app_db_user }}
+      DB_PASSWORD='{{ app_db_password }}'
+    owner: root
+    group: "{{ app_user }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart app
+
+# Sinh 1 lần trên máy, không đổi giữa các lần chạy (đổi = mọi người bị đăng xuất)
+- name: secret.env (SECRET_KEY ký cookie phiên — tạo 1 lần)
+  ansible.builtin.shell: |
+    set -eu
+    umask 027
+    printf 'SECRET_KEY=%s\n' "$(openssl rand -hex 32)" > {{ app_conf_dir }}/secret.env
+    chgrp {{ app_user }} {{ app_conf_dir }}/secret.env
+  args:
+    creates: "{{ app_conf_dir }}/secret.env"
+  notify: Restart app
+
+# ----- Giao diện tĩnh cho Nginx -----
+- name: Thư mục giao diện {{ app_web_root }}
+  ansible.builtin.file:
+    path: "{{ app_web_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Giao diện (app/static → {{ app_web_root }})
+  ansible.builtin.copy:
+    src: "{{ app_src }}/static/"
+    dest: "{{ app_web_root }}/"
+    owner: root
+    group: root
+    mode: u=rwX,go=rX
+
+# ----- systemd -----
+- name: Unit {{ app_service }}
+  ansible.builtin.copy:
+    src: "{{ app_unit_src }}"
+    dest: "/etc/systemd/system/{{ app_service }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: [Reload systemd, Restart app]
+
+- name: Bật {{ app_service }}
+  ansible.builtin.systemd_service:
+    name: "{{ app_service }}"
+    enabled: true
+    state: started
+
+- name: Áp dụng thay đổi (restart nếu có)
+  ansible.builtin.meta: flush_handlers
+
+- name: Đợi app trả lời /health
+  ansible.builtin.uri:
+    url: "http://{{ app_bind }}/health"
+    return_content: true
+  register: app_health
+  until: app_health.status == 200
+  retries: 15
+  delay: 2
+
+# ----- Tài khoản -----
+# Mật khẩu qua stdin; manage in created/updated/unchanged → chạy lại không báo changed
+- name: Tài khoản đăng nhập app
+  ansible.builtin.command:
+    cmd: python3 -m todo.manage set-password {{ item.username }}
+    stdin: "{{ item.password }}"
+    chdir: "{{ app_install_dir }}"
+  environment:
+    PYTHONPATH: "{{ app_install_dir }}"
+    PYTHONDONTWRITEBYTECODE: "1"
+    DB_NAME: "{{ app_db_name }}"
+    DB_USER: "{{ app_db_user }}"
+    DB_PASSWORD: "{{ app_db_password }}"
+  loop: "{{ app_accounts }}"
+  loop_control:
+    label: "{{ item.username }}"
+  register: app_account_result
+  changed_when: app_account_result.stdout in ['created', 'updated']
+  no_log: true

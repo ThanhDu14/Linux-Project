@@ -1,0 +1,16 @@
+---
+# Role storage — định dạng + mount ổ EBS dữ liệu (architecture.md mục 4: VM1 /data, VM2 /backup).
+# storage_volume_id: từ inventory (Terraform sinh). storage_mount: group_vars/<group>/storage.yml.
+storage_volume_id: ""
+storage_mount: ""
+
+# EC2 Nitro (t3) đưa EBS thành /dev/nvmeXn1, số thứ tự KHÔNG cố định giữa các lần boot.
+# udev tạo symlink theo serial = volume ID bỏ dấu "-" → luôn trỏ đúng ổ.
+storage_device: "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_{{ storage_volume_id | replace('-', '') }}"
+
+storage_fstype: ext4
+# Nhãn filesystem (tối đa 16 ký tự) — dễ nhận ra khi lsblk -f
+storage_label: "{{ storage_mount | basename }}"
+# nofail: ổ chưa gắn kịp lúc boot thì máy vẫn lên (vẫn SSH vào sửa được), không rơi vào emergency mode
+# noatime: không ghi lại thời điểm đọc mỗi lần mở file — bớt ghi đĩa cho PostgreSQL
+storage_mount_opts: defaults,nofail,noatime

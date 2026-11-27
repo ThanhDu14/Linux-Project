@@ -2,7 +2,7 @@
 # site.yml — điều phối toàn bộ cấu hình. Chạy (trong ansible/):
 #   ansible-playbook site.yml --vault-password-file ~/.ansible/linux-project.vault_pass
 # (không có file mật khẩu thì dùng --ask-vault-pass)
-# Các role khác (storage, postgresql, app, ...) sẽ được thêm vào đây.
+# Các role khác (toolkit, ...) sẽ được thêm vào đây.
 
 - name: Tất cả máy — cơ bản + user/SSH key/sudo của thành viên
   hosts: all
@@ -19,6 +19,35 @@
     - ssh_hardening
     - auditd
     - firewall
+
+# Ổ EBS dữ liệu: VM1 /data, VM2 /backup (group_vars/<group>/storage.yml)
+- name: VM1 + VM2 — mount ổ EBS dữ liệu
+  hosts: private
+  become: true
+  roles:
+    - storage
+
+# Cấu hình của TV4 trong config/postgresql/. Cần /data (storage) → đặt sau play trên.
+- name: VM1 — PostgreSQL (dữ liệu trên /data, chỉ nghe localhost)
+  hosts: web
+  become: true
+  roles:
+    - postgresql
+
+# App todo (app/): API Flask (systemd, 127.0.0.1:5000) + giao diện tĩnh cho Nginx. Cần bảng của init.sql → sau postgresql.
+- name: VM1 — app todo (Flask + gunicorn)
+  hosts: web
+  become: true
+  roles:
+    - app
+
+# Sao lưu của TV4: VM1 → rsync → VM2 → S3. Cần /data, /backup (storage) + PostgreSQL → đặt sau 2 play trên.
+# Chạy cùng lúc trên cả 2 máy (VM2 cần public key của VM1) — không --limit chỉ 1 máy.
+- name: VM1 + VM2 — sao lưu (timer 02:00 / 02:30, off-site S3)
+  hosts: web:backup
+  become: true
+  roles:
+    - backup
 
 - name: Bastion — VPN WireGuard (cửa vào cho nhóm quản trị)
   hosts: bastion

@@ -1,0 +1,176 @@
+---
+- name: Máy này là VM1 (web) hay VM2 (backup)
+  ansible.builtin.set_fact:
+    backup_role: "{{ ['web', 'backup'] | intersect(group_names) | first | default('') }}"
+
+# VM2 cần public key của VM1 và VM1 cần IP của VM2 → phải chạy cùng lúc trên cả hai máy
+- name: Kiểm tra trước khi cài
+  ansible.builtin.assert:
+    that:
+      - backup_role | length > 0
+      - groups['web'] | default([]) | length == 1
+      - groups['backup'] | default([]) | length == 1
+      - groups['web'][0] in ansible_play_hosts_all
+      - groups['backup'][0] in ansible_play_hosts_all
+      - backup_role != 'backup' or backup_s3_bucket | length > 0
+    fail_msg: >-
+      {{ inventory_hostname }}: role backup cần chạy cùng lúc trên đúng 1 máy web + 1 máy backup
+      (không --limit chỉ 1 máy), và máy backup cần backup_s3_bucket (terraform apply để sinh lại inventory)
+    quiet: true
+
+- name: Kiểm tra đủ file của TV4
+  ansible.builtin.assert:
+    that:
+      - (backup_repo_root ~ '/' ~ item) is file
+    fail_msg: "Thiếu {{ item }} (TV4 sở hữu)"
+    quiet: true
+  loop: >-
+    {{ ['config/backup/lab-backup.conf', 'scripts/lib/backup-common.sh']
+       + (backup_hosts | dict2items | map(attribute='value.scripts') | flatten | map('regex_replace', '^', 'scripts/') | list)
+       + (backup_hosts | dict2items | map(attribute='value.units') | flatten | map('regex_replace', '^', 'config/systemd/') | list) }}
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Cài gói
+  ansible.builtin.apt:
+    name: "{{ backup_hosts[backup_role].packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# ----- Script + cấu hình (cả 2 máy) -----
+# root sở hữu, người khác không ghi được: sudoers (role common) cho TV4 chạy các script này bằng root
+- name: Thư mục script
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ backup_install_dir | dirname }}"
+    - "{{ backup_install_dir }}"
+    - "{{ backup_install_dir }}/lib"
+
+- name: Script sao lưu
+  ansible.builtin.copy:
+    src: "{{ backup_repo_root }}/scripts/{{ item }}"
+    dest: "{{ backup_install_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ backup_hosts[backup_role].scripts }}"
+
+- name: Thư viện dùng chung
+  ansible.builtin.copy:
+    src: "{{ backup_repo_root }}/scripts/lib/backup-common.sh"
+    dest: "{{ backup_install_dir }}/lib/backup-common.sh"
+    owner: root
+    group: root
+    mode: "0644"
+
+# Giữ nguyên file của TV4, chỉ điền giá trị lấy từ hạ tầng (IP VM2, tên bucket)
+- name: "{{ backup_conf_file }}"
+  ansible.builtin.copy:
+    content: |
+      {{ lookup('ansible.builtin.file', backup_repo_root ~ '/config/backup/lab-backup.conf')
+         | regex_replace('(?m)^REMOTE=.*$', 'REMOTE=' ~ backup_user ~ '@' ~ hostvars[groups['backup'][0]].ansible_host)
+         | regex_replace('(?m)^SSH_KEY=.*$', 'SSH_KEY=' ~ backup_key_file)
+         | regex_replace('(?m)^INCOMING_DIR=.*$', 'INCOMING_DIR=' ~ backup_incoming_dir)
+         | regex_replace('(?m)^S3_BUCKET=.*$', 'S3_BUCKET=' ~ hostvars[groups['backup'][0]].backup_s3_bucket | default('')) }}
+    dest: "{{ backup_conf_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+# ----- VM1: key rsync -----
+- name: VM1 — key SSH để rsync sang VM2
+  when: backup_role == 'web'
+  block:
+    - name: Thư mục /root/.ssh
+      ansible.builtin.file:
+        path: "{{ backup_key_file | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Tạo key ed25519 (chỉ lần đầu)
+      ansible.builtin.command: >-
+        ssh-keygen -q -t ed25519 -N '' -f {{ backup_key_file }} -C root@{{ inventory_hostname }}
+      args:
+        creates: "{{ backup_key_file }}"
+
+    - name: Đọc public key
+      ansible.builtin.slurp:
+        src: "{{ backup_key_file }}.pub"
+      register: backup_pubkey
+
+# ----- VM2: user rbackup bị khoá bằng rrsync -----
+- name: VM2 — nơi nhận bản sao lưu
+  when: backup_role == 'backup'
+  block:
+    - name: Kiểm tra {{ backup_incoming_dir | dirname }} là ổ EBS đã mount (role storage)
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.mounts | selectattr('mount', 'equalto', backup_incoming_dir | dirname) | list | length == 1
+        fail_msg: "{{ backup_incoming_dir | dirname }} chưa được mount — chạy role storage trước"
+        quiet: true
+
+    - name: Có {{ backup_rrsync }}
+      ansible.builtin.stat:
+        path: "{{ backup_rrsync }}"
+      register: backup_rrsync_stat
+
+    - name: rrsync phải có sẵn (rsync >= 3.2.4)
+      ansible.builtin.assert:
+        that: backup_rrsync_stat.stat.executable | default(false)
+        fail_msg: "Không có {{ backup_rrsync }} — nâng gói rsync (apt full-upgrade) rồi chạy lại"
+        quiet: true
+
+    # Không mật khẩu (tài khoản bị khoá), chỉ vào được bằng key của VM1
+    - name: User {{ backup_user }}
+      ansible.builtin.user:
+        name: "{{ backup_user }}"
+        shell: /bin/bash
+        create_home: true
+        password: "!"
+        comment: Nhan backup rsync tu web-app-db-01
+
+    - name: "{{ backup_incoming_dir }}"
+      ansible.builtin.file:
+        path: "{{ backup_incoming_dir }}"
+        state: directory
+        owner: "{{ backup_user }}"
+        group: "{{ backup_user }}"
+        mode: "0700"
+
+    # exclusive: chỉ đúng key này — khớp mẫu config/backup/authorized_keys.rbackup.example
+    - name: authorized_keys — key của VM1 chỉ chạy được rrsync chỉ-ghi
+      ansible.posix.authorized_key:
+        user: "{{ backup_user }}"
+        key: "{{ hostvars[groups['web'][0]].backup_pubkey.content | b64decode | trim }}"
+        key_options: 'command="{{ backup_rrsync }} -wo {{ backup_incoming_dir }}",restrict'
+        exclusive: true
+        manage_dir: true
+
+# ----- Timer (cả 2 máy) -----
+- name: Unit systemd
+  ansible.builtin.copy:
+    src: "{{ backup_repo_root }}/config/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ backup_hosts[backup_role].units }}"
+  notify: Reload systemd
+
+- name: Nạp unit mới trước khi bật timer
+  ansible.builtin.meta: flush_handlers
+
+- name: Bật {{ backup_hosts[backup_role].timer }}
+  ansible.builtin.systemd_service:
+    name: "{{ backup_hosts[backup_role].timer }}"
+    enabled: true
+    state: started

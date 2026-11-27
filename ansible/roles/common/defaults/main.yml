@@ -19,7 +19,7 @@ common_password_hashes: "{{ vault_sudo_password_hashes | default({}) }}"
 # ===== Sudo giới hạn theo vai =====
 # Mỗi profile = một dòng sudoers: chạy với quyền `runas`, chỉ đúng các lệnh liệt kê (đường dẫn tuyệt đối).
 # Không thêm: editor (vim/nano), pager (less/more), `systemctl edit`, tar/rsync/find — đều thoát ra được shell root.
-# Script trong /usr/local/sbin phải do root sở hữu và người dùng không ghi được (role toolkit/backup lo).
+# Script trong /usr/local/sbin, /opt/lab-toolkit phải do root sở hữu và người dùng không ghi được (role toolkit/backup lo).
 # Không cần sudo cho `systemctl status`, `systemctl list-timers`, `journalctl`: thành viên có sudo đã ở group systemd-journal.
 common_sudo_profiles:
   # Đăng (TV3) @ VM1 — app Flask + systemd
@@ -43,13 +43,14 @@ common_sudo_profiles:
   # Duy (TV4) @ VM1 — sao lưu / khôi phục
   backup_source:
     commands:
-      - /usr/local/sbin/backup.sh
-      - /usr/local/sbin/restore.sh
-      - /usr/bin/systemctl start backup.service
+      - /opt/lab-toolkit/scripts/backup.sh
+      - /opt/lab-toolkit/scripts/restore.sh
+      - /usr/bin/systemctl start lab-backup.service
   # Duy (TV4) @ VM2 — đẩy backup lên S3
   backup_target:
     commands:
-      - /usr/bin/systemctl start s3-sync.service
+      - /opt/lab-toolkit/scripts/backup-offsite.sh
+      - /usr/bin/systemctl start lab-offsite.service
   # Hưng (TV5) @ VM1 — deploy cấu hình Nginx + xoay log
   nginx_deploy:
     commands:

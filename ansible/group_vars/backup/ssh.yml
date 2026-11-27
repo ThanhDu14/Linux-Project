@@ -1,0 +1,4 @@
+---
+# rbackup: VM1 rsync bản sao lưu vào đây (role backup). Key của nó bị khoá bằng rrsync -wo trong
+# authorized_keys → vào được cũng chỉ ghi được vào /backup/incoming, không có shell.
+ssh_hardening_always_allow: [ubuntu, rbackup]

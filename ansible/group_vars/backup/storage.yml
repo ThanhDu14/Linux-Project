@@ -1,0 +1,3 @@
+---
+# Ổ EBS 20 GB: nhận bản sao lưu từ VM1 (/backup/incoming) — architecture.md mục 7
+storage_mount: /backup
