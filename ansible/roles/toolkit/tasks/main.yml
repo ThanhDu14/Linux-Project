@@ -1,0 +1,144 @@
+---
+- name: Máy này là VM1 (web) hay VM2 (backup)
+  ansible.builtin.set_fact:
+    toolkit_role: "{{ ['web', 'backup'] | intersect(group_names) | first | default('') }}"
+
+- name: Kiểm tra trước khi cài
+  ansible.builtin.assert:
+    that:
+      - toolkit_role | length > 0
+      - groups['web'] | default([]) | length == 1
+    fail_msg: "{{ inventory_hostname }}: role toolkit chỉ chạy trên máy web hoặc backup (cần đúng 1 máy web trong inventory)"
+    quiet: true
+
+- name: Kiểm tra đủ file của TV5
+  ansible.builtin.assert:
+    that:
+      - (toolkit_repo_root ~ '/' ~ item) is file
+    fail_msg: "Thiếu {{ item }} (TV5 sở hữu)"
+    quiet: true
+  loop: >-
+    {{ ['scripts/lib/common.sh', 'config/msmtp/msmtprc.example']
+       + (toolkit_scripts | map('regex_replace', '^', 'scripts/') | list)
+       + (toolkit_units | map('regex_replace', '^', 'config/systemd/') | list)
+       + (toolkit_hosts | dict2items | map(attribute='value.conf') | list) }}
+  run_once: true
+  delegate_to: localhost
+  become: false
+
+- name: Cài gói (cần NAT)
+  ansible.builtin.apt:
+    name: "{{ toolkit_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# ----- Script: root sở hữu, người khác không ghi được (sudoers của role common cho TV5 chạy bằng root) -----
+- name: Thư mục script
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ toolkit_install_dir | dirname }}"
+    - "{{ toolkit_install_dir }}"
+    - "{{ toolkit_install_dir }}/lib"
+
+- name: Script toolkit
+  ansible.builtin.copy:
+    src: "{{ toolkit_repo_root }}/scripts/{{ item }}"
+    dest: "{{ toolkit_install_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ toolkit_scripts }}"
+
+- name: Thư viện dùng chung
+  ansible.builtin.copy:
+    src: "{{ toolkit_repo_root }}/scripts/lib/common.sh"
+    dest: "{{ toolkit_install_dir }}/lib/common.sh"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Lệnh `toolkit`
+  ansible.builtin.file:
+    src: "{{ toolkit_install_dir }}/toolkit.sh"
+    dest: "{{ toolkit_bin_link }}"
+    state: link
+    force: true # --check: script chưa được chép thật
+
+# Chỉ root ghi (script chạy qua sudo/timer); group adm đọc được như log hệ thống khác
+- name: "{{ toolkit_log_file }}"
+  ansible.builtin.file:
+    path: "{{ toolkit_log_file }}"
+    state: touch
+    owner: root
+    group: adm
+    mode: "0640"
+    modification_time: preserve
+    access_time: preserve
+
+# ----- Cấu hình: giữ nguyên file của TV5, chỉ điền giá trị lấy từ hạ tầng -----
+# File được source bằng bash → giá trị lấy từ inventory phải được quote
+- name: "{{ toolkit_conf_file }}"
+  ansible.builtin.copy:
+    content: |
+      {{ lookup('ansible.builtin.file', toolkit_repo_root ~ '/' ~ toolkit_hosts[toolkit_role].conf)
+         | regex_replace('(?m)^APP_DOMAIN=.*$', 'APP_DOMAIN=' ~ toolkit_app_domain | quote)
+         | regex_replace('(?m)^HC_APP_DOMAIN=.*$', 'HC_APP_DOMAIN=' ~ toolkit_app_domain | quote)
+         | regex_replace('(?m)^STATUS_DOMAIN=.*$', 'STATUS_DOMAIN=' ~ toolkit_status_domain | quote)
+         | regex_replace('(?m)^HC_REMOTE_URL=.*$', 'HC_REMOTE_URL=' ~ ('https://' ~ toolkit_web_ip ~ '/health') | quote)
+         | regex_replace('(?m)^TOOLKIT_LOG=.*$', 'TOOLKIT_LOG=' ~ toolkit_log_file)
+         | regex_replace('(?m)^ALERT_TO=.*$', 'ALERT_TO=' ~ (toolkit_alert_to if toolkit_mail_enabled | bool else '') | quote) }}
+    dest: "{{ toolkit_conf_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    toolkit_app_domain: "{{ hostvars[groups['web'][0]].nginx_app_domain | default('app.lab.local') }}"
+    toolkit_status_domain: "{{ hostvars[groups['web'][0]].nginx_status_domain | default('status.lab.local') }}"
+    toolkit_web_ip: "{{ hostvars[groups['web'][0]].ansible_host }}"
+
+# ----- msmtp: mẫu của TV5 + tài khoản trong vault -----
+- name: /etc/msmtprc (mật khẩu SMTP từ vault)
+  ansible.builtin.copy:
+    content: |
+      {{ lookup('ansible.builtin.file', toolkit_repo_root ~ '/config/msmtp/msmtprc.example')
+         | regex_replace('(?m)^host .*$', 'host           ' ~ toolkit_smtp_host)
+         | regex_replace('(?m)^from .*$', 'from           ' ~ toolkit_smtp_user)
+         | regex_replace('(?m)^user .*$', 'user           ' ~ toolkit_smtp_user)
+         | regex_replace('(?m)^password .*$', 'password       ' ~ toolkit_smtp_password) }}
+    dest: /etc/msmtprc
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: toolkit_mail_enabled | bool
+
+- name: Chưa có tài khoản SMTP trong vault → không gửi email
+  ansible.builtin.debug:
+    msg: "Thiếu vault_toolkit_alert_to / vault_toolkit_smtp_user / vault_toolkit_smtp_password — health-check chỉ ghi log, không gửi mail"
+  when: not toolkit_mail_enabled | bool
+
+# ----- Timer health-check (5 phút) -----
+- name: Unit systemd
+  ansible.builtin.copy:
+    src: "{{ toolkit_repo_root }}/config/systemd/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ toolkit_units }}"
+  notify: Reload systemd
+
+- name: Nạp unit mới trước khi bật timer
+  ansible.builtin.meta: flush_handlers
+
+- name: Bật {{ toolkit_timer }}
+  ansible.builtin.systemd_service:
+    name: "{{ toolkit_timer }}"
+    enabled: true
+    state: started

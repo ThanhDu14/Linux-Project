@@ -1,0 +1,31 @@
+---
+# Role toolkit — cài bộ công cụ vận hành của TV5 (scripts/, config/toolkit/, config/msmtp/, config/systemd/lab-healthcheck.*)
+# lên VM1 + VM2. Hướng dẫn gốc: docs/role5-toolkit.md. Nội dung script/cấu hình là của TV5 — sửa qua PR, Hưng review.
+toolkit_repo_root: "{{ playbook_dir }}/.."
+
+# Cùng thư mục với script backup của TV4 (role backup) — sudoers (role common) trỏ đúng các đường dẫn này
+toolkit_install_dir: /opt/lab-toolkit/scripts
+toolkit_conf_file: /etc/lab-toolkit.conf
+toolkit_log_file: /var/log/lab-toolkit.log
+# Lệnh ngắn cho thành viên: `toolkit` (symlink tới toolkit.sh)
+toolkit_bin_link: /usr/local/bin/toolkit
+
+toolkit_packages: [msmtp, shellcheck, curl, rsync]
+toolkit_scripts: [toolkit.sh, deploy.sh, healthcheck.sh, logrotate.sh]
+toolkit_units: [lab-healthcheck.service, lab-healthcheck.timer]
+toolkit_timer: lab-healthcheck.timer
+
+# Theo group: file cấu hình mẫu của TV5 (Ansible chỉ điền giá trị lấy từ hạ tầng)
+toolkit_hosts:
+  web:
+    conf: config/toolkit/lab-toolkit.conf
+  backup:
+    conf: config/toolkit/lab-toolkit-vm2.conf
+
+# ----- Cảnh báo email (msmtp, SMTP 587 qua NAT) -----
+# Đặt trong group_vars/all/vault.yml. Thiếu mật khẩu → không cài /etc/msmtprc, ALERT_TO để trống (chỉ ghi log).
+toolkit_alert_to: "{{ vault_toolkit_alert_to | default('') }}"
+toolkit_smtp_user: "{{ vault_toolkit_smtp_user | default('') }}"
+toolkit_smtp_password: "{{ vault_toolkit_smtp_password | default('') }}"
+toolkit_smtp_host: smtp.gmail.com
+toolkit_mail_enabled: "{{ toolkit_smtp_user | length > 0 and toolkit_smtp_password | length > 0 and toolkit_alert_to | length > 0 }}"

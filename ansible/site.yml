@@ -2,11 +2,13 @@
 # site.yml — điều phối toàn bộ cấu hình. Chạy (trong ansible/):
 #   ansible-playbook site.yml --vault-password-file ~/.ansible/linux-project.vault_pass
 # (không có file mật khẩu thì dùng --ask-vault-pass)
-# Các role khác (toolkit, ...) sẽ được thêm vào đây.
+# Chỉ thêm/bớt thành viên (user, SSH key, sudo, AllowUsers, peer VPN) — nhanh hơn chạy cả file:
+#   ansible-playbook site.yml --tags users --vault-password-file ~/.ansible/linux-project.vault_pass
 
 - name: Tất cả máy — cơ bản + user/SSH key/sudo của thành viên
   hosts: all
   become: true
+  tags: [users]
   roles:
     - common
 
@@ -16,7 +18,8 @@
   become: true
   roles:
     - os_hardening
-    - ssh_hardening
+    - role: ssh_hardening   # AllowUsers sinh từ members.yml
+      tags: [users]
     - auditd
     - firewall
 
@@ -52,6 +55,7 @@
 - name: Bastion — VPN WireGuard (cửa vào cho nhóm quản trị)
   hosts: bastion
   become: true
+  tags: [users]
   roles:
     - wireguard
 
@@ -60,6 +64,14 @@
   become: true
   roles:
     - nginx
+
+# Bộ công cụ vận hành của TV5 (scripts/, config/toolkit/): menu `toolkit`, deploy/rollback, health-check 5 phút + email.
+# Sau backup (cùng /opt/lab-toolkit/scripts) và nginx/app (health-check kiểm tra các dịch vụ này).
+- name: VM1 + VM2 — toolkit vận hành + timer health-check
+  hosts: web:backup
+  become: true
+  roles:
+    - toolkit
 
 # CUỐI CÙNG: jail đọc log của dịch vụ (nginx, ...) — chạy trước khi dịch vụ được cài thì chưa có file log,
 # fail2ban không khởi động được. Thêm dịch vụ mới có jail → đặt play của nó PHÍA TRÊN play này.

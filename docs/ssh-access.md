@@ -29,7 +29,7 @@ Dự gửi lại cho bạn: **IP VPN của bạn** (vd `10.8.0.3`), **public key
 | Dự, Trân | sudo đầy đủ (nhập mật khẩu) | sudo đầy đủ | sudo đầy đủ |
 | Đăng (TV3) | chỉ đăng nhập (đi qua) | sudo giới hạn: `app.service` | — (không có user) |
 | Duy (TV4) | chỉ đăng nhập | sudo giới hạn: PostgreSQL, backup/restore | sudo giới hạn: `s3-sync.service` |
-| Hưng (TV5) | chỉ đăng nhập | sudo giới hạn: `nginx -t`, reload Nginx, deploy, logrotate, healthcheck | sudo giới hạn: healthcheck |
+| Hưng (TV5) | chỉ đăng nhập | sudo giới hạn: `nginx -t`, reload Nginx, deploy, logrotate, healthcheck, chạy backup (không restore) | sudo giới hạn: healthcheck |
 
 - Xem đúng quyền của mình: `sudo -l`. Lệnh ngoài danh sách bị từ chối ngay và **được ghi log** (`/var/log/auth.log`).
 - Lệnh phải gõ **đúng y** như trong `sudo -l` (đường dẫn, tham số). Đọc log/trạng thái **không cần sudo**: `systemctl status ...`, `journalctl -u ...`, `systemctl list-timers`.
