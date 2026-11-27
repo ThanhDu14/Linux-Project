@@ -79,7 +79,7 @@ run_command() {
                 log ERROR "Required command not found: shellcheck"
                 return 1
             fi
-            shellcheck -x "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/lib/*.sh
+            shellcheck -x -P "$SCRIPT_DIR" "$SCRIPT_DIR"/*.sh "$SCRIPT_DIR"/lib/*.sh
             ;;
         *) die "Unknown command: $1" ;;
     esac

@@ -33,7 +33,7 @@ Các script bật `set -Eeuo pipefail`, dùng thư viện `common.sh` để th�
 
 ## 5.5 Kiểm định
 
-Chạy `shellcheck -x scripts/*.sh scripts/lib/*.sh` trên toàn bộ script, gồm cả script TV4, để bảo đảm không còn lỗi/cảnh báo. Kiểm tra unit bằng `systemd-analyze verify` và chạy thử từng trường hợp lỗi trước demo.
+Chạy `shellcheck -x -P scripts scripts/*.sh scripts/lib/*.sh` (hoặc `toolkit.sh -c shellcheck`) trên toàn bộ script, gồm cả script TV4, để bảo đảm không còn lỗi/cảnh báo. Kiểm tra unit bằng `systemd-analyze verify` và chạy thử từng trường hợp lỗi trước demo.
 
 > 📷 *Hình 5.6 — Output ShellCheck sạch.*
 

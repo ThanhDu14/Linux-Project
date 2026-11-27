@@ -72,7 +72,7 @@ Script xoay file được chỉ định, nén các thế hệ thành `.gz`, và 
 ## 3. Kiểm thử & demo
 
 ```bash
-shellcheck -x scripts/*.sh scripts/lib/*.sh
+shellcheck -x -P scripts scripts/*.sh scripts/lib/*.sh
 systemd-analyze verify config/systemd/lab-healthcheck.service config/systemd/lab-healthcheck.timer
 ```
 
