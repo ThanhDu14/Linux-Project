@@ -19,7 +19,7 @@ common_password_hashes: "{{ vault_sudo_password_hashes | default({}) }}"
 # ===== Sudo giới hạn theo vai =====
 # Mỗi profile = một dòng sudoers: chạy với quyền `runas`, chỉ đúng các lệnh liệt kê (đường dẫn tuyệt đối).
 # Không thêm: editor (vim/nano), pager (less/more), `systemctl edit`, tar/rsync/find — đều thoát ra được shell root.
-# Script trong /usr/local/sbin, /opt/lab-toolkit phải do root sở hữu và người dùng không ghi được (role toolkit/backup lo).
+# Script trong /opt/lab-toolkit/scripts phải do root sở hữu và người dùng không ghi được (role toolkit/backup lo).
 # Không cần sudo cho `systemctl status`, `systemctl list-timers`, `journalctl`: thành viên có sudo đã ở group systemd-journal.
 common_sudo_profiles:
   # Đăng (TV3) @ VM1 — app Flask + systemd
@@ -56,10 +56,15 @@ common_sudo_profiles:
     commands:
       - /usr/sbin/nginx -t
       - /usr/bin/systemctl reload nginx.service
-      - /usr/local/sbin/deploy.sh
-      - /usr/local/sbin/logrotate.sh
-  # Hưng (TV5) @ VM1 + VM2 — health-check
+      - /opt/lab-toolkit/scripts/deploy.sh
+      - /opt/lab-toolkit/scripts/logrotate.sh
+  # Hưng (TV5) @ VM1 + VM2 — health-check (unit do role toolkit cài)
   healthcheck:
     commands:
-      - /usr/local/sbin/healthcheck.sh
-      - /usr/bin/systemctl start healthcheck.service
+      - /opt/lab-toolkit/scripts/healthcheck.sh
+      - /usr/bin/systemctl start lab-healthcheck.service
+  # Hưng (TV5) @ VM1 — chạy backup từ menu toolkit. KHÔNG có restore.sh: restore ghi đè dữ liệu thật,
+  # chỉ TV4 (backup_source) và Dự được chạy. Menu phải gọi đúng đường dẫn này, không qua symlink.
+  backup_run:
+    commands:
+      - /opt/lab-toolkit/scripts/backup.sh

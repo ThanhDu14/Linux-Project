@@ -1,6 +1,8 @@
 [sshd]
 enabled = true
 backend = systemd
+# Ubuntu: unit là ssh.service (mặc định fail2ban 0.11 đọc sshd.service → không thấy log nào)
+journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
 maxretry = 5
 findtime = 10m
 bantime = 10m

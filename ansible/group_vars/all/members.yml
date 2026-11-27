@@ -61,10 +61,12 @@ members:
   - name: hung
     comment: "Hưng — TV5 Bash toolkit & cảnh báo"
     ssh_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILFlGAZU94juji1xoJ2KSgnQ6u0eZAoqgJi7sHCXGmDQ Hung@linux-project"
-    # wireguard: { ip: 10.8.0.4, public_key: "<...>" }
+    wireguard:
+      ip: 10.8.0.4
+      public_key: "hHtnL1I/GsACplUsuqCMOlle/OWoWDcI+1N87iX0KgQ="
     access:
       bastion: login
-      web: [nginx_deploy, healthcheck]
+      web: [nginx_deploy, healthcheck, backup_run]
       backup: [healthcheck]
 
 # Người rời nhóm: XOÁ khỏi `members` rồi ghi tên vào đây → gỡ user + home + sudoers trên mọi máy
