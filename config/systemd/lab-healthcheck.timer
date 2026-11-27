@@ -1,0 +1,10 @@
+# Run shortly after boot and every five minutes while the machine is running.
+[Unit]
+Description=Run Linux Project health check every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

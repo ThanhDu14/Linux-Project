@@ -1,0 +1,12 @@
+# /etc/systemd/system/lab-healthcheck.service — periodic toolkit health check.
+[Unit]
+Description=Linux Project system health check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/lab-toolkit/scripts/healthcheck.sh
+User=root
+Group=root
+Nice=10
